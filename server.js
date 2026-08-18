@@ -406,10 +406,7 @@ function plural(n) {
   return n + ' pessoas assistindo';
 }
 
-function updatePresence() {
-  if (!presence) return;
-  if (!live) return presence.clear();
-
+function buildActivity() {
   const act = {
     type: cfg.activityType,
     timestamps: { start: liveSince || Date.now() },
@@ -434,7 +431,13 @@ function updatePresence() {
     };
   }
 
-  presence.set(act);
+  return act;
+}
+
+function updatePresence() {
+  if (!presence) return;
+  if (!live) return presence.clear();
+  presence.set(buildActivity());
 }
 
 function disconnect(v, reason) {
@@ -565,6 +568,8 @@ const server = http.createServer((req, res) => {
         user: presence && presence.user ? presence.user.username : '',
         note: discordNote,
         appName: appName,
+        lastResult: presence ? presence.lastResult : null,
+        live: live,
       }));
     }
 
@@ -582,6 +587,21 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ ok: true, cfg: cfg }));
     });
     return;
+  }
+
+  // força o status agora, mesmo sem transmitir — para dar pra conferir sozinho
+  if (p === '/discord-test') {
+    if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    if (!presence) return res.end(JSON.stringify({ ok: false, why: 'sem App ID configurado' }));
+    if (!presence.ready) return res.end(JSON.stringify({ ok: false, why: 'não conectou no cliente do Discord' }));
+
+    presence.lastResult = null;
+    const act = buildActivity();
+    if (!liveSince) act.timestamps = { start: Date.now() };
+    presence.sentAt = 0;              // teste manual fura a fila de espera
+    presence.set(act);
+    return res.end(JSON.stringify({ ok: true, activity: act }));
   }
 
   // o painel manda a miniatura ja' borrada e reduzida; aqui so' guardamos

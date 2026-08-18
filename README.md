@@ -158,7 +158,8 @@ com uma miniatura borrada da sua tela do lado.
 
 1. Abra <https://discord.com/developers/applications> → **New Application**.
 2. O **nome que você der é a primeira linha do status**. Copie o **Application ID**.
-3. Cole no painel, em **Discord — status**, e clique em **Salvar**.
+3. Cole no painel, no dock **Discord**, e clique em **Salvar**. Depois **Testar agora**
+   para confirmar que chegou.
 
 Fica gravado em `screenshared.config.json` e vale nas próximas execuções. O painel
 mostra uma prévia de como o status vai ficar, já com o nome real do seu app, e
@@ -196,10 +197,27 @@ O verbo vem do tipo da atividade, e o Discord aceita estes (testados no cliente)
 | Mini-preview borrado | **Sim.** Miniatura de 320px desfocada, trocada a cada 30s. Confirmado no cliente real: o Discord aceita a URL externa e reescreve para o proxy dele (`mp:external/…`). Como ele cacheia com força, a imagem atualiza devagar. |
 | Qual call/servidor você está | **Não dá.** Ler o canal de voz atual exige os escopos `rpc` / `rpc.voice.read`, que o Discord libera só por lista de permissão, caso a caso — app pessoal não consegue. Por isso o convite do servidor é você que configura, no `--discord-invite`. |
 
+### Não aparece nada no seu perfil?
+
+Clique em **Testar agora**, no painel. Ele manda um status na hora, mesmo sem você
+estar transmitindo, e mostra o que o Discord respondeu:
+
+- **"O Discord ACEITOU o status"** — o programa fez a parte dele. Se ainda assim
+  não aparece, o culpado é quase sempre uma configuração do próprio Discord:
+  **Configurações → Privacidade de atividade → "Exibir a atividade atual como
+  mensagem de status"**. Se isso estiver desligado, nenhum Rich Presence aparece,
+  de programa nenhum.
+- **"O Discord recusou: …"** — a mensagem vem crua do cliente e diz o motivo.
+- **"não conectou no cliente do Discord"** — o Discord está fechado, ou está numa
+  sandbox (Flatpak/Snap) e o socket não está no lugar padrão. Aponte com
+  `SCREENSHARED_DISCORD_PIPE`.
+
+Duas coisas que parecem defeito e não são: o status **só sobe enquanto você está
+transmitindo** (fora isso ele fica limpo de propósito), e **você não enxerga os
+seus próprios botões** — o Discord esconde de quem é dono do status.
+
 Detalhes que economizam confusão:
 
-- **Você não vê os seus próprios botões.** O Discord esconde de quem é dono do
-  status. Peça para alguém olhar seu perfil, ou confira por outra conta.
 - O status some sozinho quando você para de transmitir ou fecha com `Ctrl+C`.
 - Discord fechado não é problema: o programa segue tentando em segundo plano e
   liga o status quando ele abrir.

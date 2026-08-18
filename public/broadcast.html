@@ -7,92 +7,126 @@
 <link rel="stylesheet" href="/style.css">
 <style>
   body { display: flex; flex-direction: column; }
-  header {
+
+  header.top {
     display: flex; align-items: center; gap: 14px;
-    padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+    padding: 0 16px; height: 46px; flex: 0 0 auto;
+    border-bottom: 1px solid var(--line); background: var(--bar);
   }
-  header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3px; }
-  header .status { color: var(--dim); font-size: 13px; }
-  header .spacer { flex: 1; }
+  header.top h1 { font-size: 14px; margin: 0; font-weight: 700; letter-spacing: .4px; }
+  header.top .status { color: var(--dim); font-size: 12.5px; }
+  header.top .spacer { flex: 1; }
 
-  main { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
 
-  .stage { display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; background: #07090c; }
-  .stage video { max-width: 100%; max-height: 100%; border-radius: 10px; background: #000; border: 1px solid var(--line); }
-  .stage .empty { color: var(--dim); text-align: center; max-width: 380px; }
-  .stage .empty h2 { color: var(--text); font-size: 18px; margin: 0 0 8px; }
+  .stage { display: flex; align-items: center; justify-content: center;
+           padding: 14px; min-height: 0; background: var(--stage); }
+  .stage video { max-width: 100%; max-height: 100%; border-radius: 6px;
+                 background: #000; border: 1px solid var(--line); }
+  .stage .empty { color: var(--dim); text-align: center; max-width: 400px; }
+  .stage .empty h2 { color: var(--text); font-size: 17px; margin: 0 0 8px; font-weight: 600; }
 
-  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
-  @media (max-width: 860px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+  /* ---- docks estilo OBS ---- */
 
-  .block { display: flex; flex-direction: column; gap: 8px; }
-  .block > label.head { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
-  .row { display: flex; gap: 8px; align-items: center; }
-  .row > * { flex: 1; }
+  aside { border-left: 1px solid var(--line); background: var(--bar);
+          padding: 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  @media (max-width: 900px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
 
-  .link {
-    display: flex; gap: 6px; align-items: stretch;
+  .panel { border: 1px solid var(--line); border-radius: 4px;
+           background: var(--panel); overflow: hidden; flex: 0 0 auto; }
+
+  .panel-head {
+    display: flex; align-items: center; gap: 8px;
+    height: 28px; padding: 0 9px;
+    background: var(--head); border-bottom: 1px solid var(--line);
+    font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em;
+    color: #aeb8c6; cursor: pointer; user-select: none;
   }
-  .link input { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-  .link button { flex: 0 0 auto; padding: 8px 12px; }
+  .panel-head:hover { background: var(--head-hover); }
 
-  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
-  .stat b { display: block; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .stat span { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+  .chev { width: 0; height: 0; flex: 0 0 auto;
+          border-left: 4px solid transparent; border-right: 4px solid transparent;
+          border-top: 5px solid #7d8798; transition: transform .13s; }
+  .panel.collapsed .chev { transform: rotate(-90deg); }
+  .panel.collapsed .panel-body { display: none; }
+  .panel.collapsed .panel-head { border-bottom: 0; }
 
-  .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--dim); cursor: pointer; }
-  .check input { margin-top: 3px; }
+  .chip { margin-left: auto; display: flex; align-items: center; gap: 5px;
+          font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: none;
+          color: var(--dim); background: var(--panel-2);
+          border: 1px solid var(--line); border-radius: 3px; padding: 1px 7px; }
+
+  .panel-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+  .sep { height: 1px; background: var(--line); margin: 2px 0; }
+  .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); }
+  button.wide { width: 100%; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+  .link { display: flex; gap: 6px; }
+  .link input { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+  .link button { flex: 0 0 auto; padding: 7px 11px; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 7px 9px; }
+  .stat b { display: block; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+
+  .check { display: flex; align-items: flex-start; gap: 7px; font-size: 12.5px;
+           color: var(--dim); cursor: pointer; line-height: 1.4; }
+  .check input { margin-top: 2px; }
 
   .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-  .grid3 label { display: flex; flex-direction: column; gap: 4px;
-                 font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
-  .grid3 select { padding: 7px 4px; font-size: 13px; }
+  .grid3 label, .fld { display: flex; flex-direction: column; gap: 4px;
+                       font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  .grid3 select { padding: 6px 4px; font-size: 12.5px; }
+  .fld input, .fld select { font-size: 12.5px; text-transform: none; letter-spacing: 0; }
+  .fld .opt { text-transform: none; letter-spacing: 0; opacity: .65; }
 
-  .note { font-size: 12px; color: var(--dim); line-height: 1.45; }
+  .note { font-size: 11.5px; color: var(--dim); line-height: 1.45; }
   .note.warn { color: var(--warn); }
 
-  .people, .banList { display: flex; flex-direction: column; gap: 6px; }
-  .banList:not(:empty) { margin-top: 4px; }
+  .verdict { font-size: 11.5px; line-height: 1.45; border-radius: 3px; padding: 7px 9px;
+             border: 1px solid var(--line); background: var(--panel-2); }
+  .verdict.good { border-color: #2c6b4d; background: #12241b; color: #9fe3bf; }
+  .verdict.bad  { border-color: #6b2f33; background: #241416; color: #f3a9ac; }
+
+  .people, .banList { display: flex; flex-direction: column; gap: 5px; }
   .person { display: flex; align-items: center; justify-content: space-between; gap: 8px;
-            background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+            background: var(--panel-2); border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px; }
   .pinfo { display: flex; flex-direction: column; min-width: 0; }
-  .pinfo b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pinfo span { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+  .pinfo b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pinfo span { font-size: 10.5px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
   .pacts { display: flex; gap: 4px; flex: 0 0 auto; }
-  .pacts button, .banList button { padding: 5px 8px; font-size: 11px; }
+  .pacts button, .banList button { padding: 4px 8px; font-size: 10.5px; }
 
-  .field { display: flex; flex-direction: column; gap: 4px;
-           font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
-  .field input, .field select { font-size: 13px; text-transform: none; letter-spacing: 0; }
-  .field .opt { text-transform: none; letter-spacing: 0; opacity: .7; }
-  .dcState { font-size: 11px; text-transform: none; letter-spacing: 0; }
-
-  .dcCard { background: #0b0d11; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
-  .dcCardHead { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin-bottom: 8px; }
-  .dcBody { display: flex; gap: 10px; }
-  .dcThumb { width: 54px; height: 54px; flex: 0 0 auto; border-radius: 8px;
-             background: linear-gradient(135deg, #2a3446, #171d27); filter: blur(1px);
+  .dcCard { background: var(--stage); border: 1px solid var(--line); border-radius: 4px; padding: 9px; }
+  .dcCardHead { font-size: 9px; text-transform: uppercase; letter-spacing: .09em;
+                color: var(--dim); margin-bottom: 8px; }
+  .dcBody { display: flex; gap: 9px; }
+  .dcThumb { width: 52px; height: 52px; flex: 0 0 auto; border-radius: 5px;
+             background: linear-gradient(135deg, #2a3446, #171d27); filter: blur(1.5px);
              display: flex; align-items: center; justify-content: center;
-             font-size: 9px; color: #6b7789; }
+             font-size: 8.5px; color: #667284; }
   .dcLines { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
-  .dcLines b { font-size: 13px; }
-  .dcLines span { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dcLines b { font-size: 12.5px; }
+  .dcLines span { font-size: 11.5px; color: var(--dim);
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dcTime { font-variant-numeric: tabular-nums; }
-  .dcBtns { display: flex; gap: 6px; margin-top: 9px; }
-  .dcBtns span { flex: 1; text-align: center; font-size: 11px; padding: 6px 4px;
-                 border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); }
+  .dcBtns { display: flex; gap: 5px; margin-top: 8px; }
+  .dcBtns span { flex: 1; text-align: center; font-size: 10.5px; padding: 5px 4px;
+                 border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); }
   .dcBtns span[hidden] { display: none; }
 
-  #log { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--dim);
-         background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
-         height: 110px; overflow-y: auto; white-space: pre-wrap; }
+  #log { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--dim);
+         background: var(--stage); border: 1px solid var(--line); border-radius: 3px; padding: 7px;
+         height: 120px; overflow-y: auto; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 
-<header>
+<header class="top">
   <h1>screenshared</h1>
   <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
   <span class="spacer"></span>
@@ -115,165 +149,182 @@
   </div>
 
   <aside>
-    <div class="block">
-      <label class="head">Link para compartilhar</label>
-      <div class="link">
-        <input type="text" id="shareUrl" readonly value="aguardando túnel...">
-        <button id="copyBtn" title="Copiar">Copiar</button>
+    <section class="panel" data-panel="live">
+      <header class="panel-head"><span class="chev"></span>Transmissão<span class="chip" id="liveChip">parado</span></header>
+      <div class="panel-body">
+        <button id="startBtn" class="primary wide">Compartilhar tela</button>
+        <button id="stopBtn" class="danger wide" disabled>Parar</button>
+        <div class="sep"></div>
+        <label class="lbl">Link para quem vai assistir</label>
+        <div class="link">
+          <input type="text" id="shareUrl" readonly value="aguardando túnel...">
+          <button id="copyBtn" title="Copiar">Copiar</button>
+        </div>
+        <div class="note" id="linkNote">Quem abrir esse link vê sua tela. Não publique em lugar aberto.</div>
       </div>
-      <div class="note" id="linkNote">Quem abrir esse link vê sua tela. Não publique em lugar aberto.</div>
-    </div>
+    </section>
 
-    <div class="block">
-      <label class="head">Transmissão</label>
-      <button id="startBtn" class="primary">Compartilhar tela</button>
-      <button id="stopBtn" class="danger" disabled>Parar</button>
-    </div>
-
-    <div class="block">
-      <label class="head">Qualidade</label>
-      <select id="preset">
-        <option value="leve">Leve — 720p · 10 fps · 0,8 Mb/s</option>
-        <option value="normal" selected>Normal — 1080p · 15 fps · 2 Mb/s</option>
-        <option value="nitido">Nítido — 1440p · 24 fps · 4 Mb/s</option>
-        <option value="custom">Personalizado</option>
-      </select>
-
-      <div class="grid3">
-        <label>Resolução
-          <select id="res">
-            <option value="0">Original</option>
-            <option value="2160">2160p</option>
-            <option value="1440">1440p</option>
-            <option value="1080" selected>1080p</option>
-            <option value="900">900p</option>
-            <option value="720">720p</option>
-            <option value="540">540p</option>
-            <option value="360">360p</option>
-          </select>
-        </label>
-        <label>FPS
-          <select id="fps">
-            <option value="5">5</option>
-            <option value="8">8</option>
-            <option value="10">10</option>
-            <option value="12">12</option>
-            <option value="15" selected>15</option>
-            <option value="20">20</option>
-            <option value="24">24</option>
-            <option value="30">30</option>
-            <option value="60">60</option>
-          </select>
-        </label>
-        <label>Taxa
-          <select id="kbps">
-            <option value="400">0,4M</option>
-            <option value="600">0,6M</option>
-            <option value="800">0,8M</option>
-            <option value="1200">1,2M</option>
-            <option value="2000" selected>2M</option>
-            <option value="3000">3M</option>
-            <option value="4000">4M</option>
-            <option value="6000">6M</option>
-            <option value="8000">8M</option>
-            <option value="12000">12M</option>
-          </select>
-        </label>
+    <section class="panel" data-panel="stats">
+      <header class="panel-head"><span class="chev"></span>Situação</header>
+      <div class="panel-body">
+        <div class="stats">
+          <div class="stat"><b id="statViewers">0</b><span>assistindo</span></div>
+          <div class="stat"><b id="statTime">00:00</b><span>no ar</span></div>
+          <div class="stat"><b id="statRate">—</b><span>envio</span></div>
+          <div class="stat"><b id="statRes">—</b><span>resolução</span></div>
+        </div>
       </div>
+    </section>
 
-      <select id="hint">
-        <option value="detail" selected>Priorizar nitidez (código, texto, planilha)</option>
-        <option value="motion">Priorizar fluidez (vídeo, animação, jogo)</option>
-      </select>
-
-      <label class="check">
-        <input type="checkbox" id="showPreview">
-        <span>Mostrar prévia da minha tela <b>(gasta CPU e pode travar a transmissão)</b></span>
-      </label>
-    </div>
-
-    <div class="block">
-      <label class="head">Entrega</label>
-      <select id="mode">
-        <option value="webrtc" selected>WebRTC — tempo real (recomendado)</option>
-        <option value="relay">Compatível — passa pelo túnel (~1s de atraso)</option>
-      </select>
-      <label class="check">
-        <input type="checkbox" id="autoFallback" checked>
-        <span>Trocar para o modo compatível sozinho se alguém não conseguir conectar por WebRTC.</span>
-      </label>
-    </div>
-
-    <div class="block">
-      <label class="head">Situação</label>
-      <div class="stats">
-        <div class="stat"><b id="statViewers">0</b><span>assistindo</span></div>
-        <div class="stat"><b id="statTime">00:00</b><span>no ar</span></div>
-        <div class="stat"><b id="statRate">—</b><span>envio</span></div>
-        <div class="stat"><b id="statRes">—</b><span>resolução</span></div>
-      </div>
-    </div>
-
-    <div class="block" id="discordBlock">
-      <label class="head">Discord — status <span class="dot" id="dcDot"></span><span id="dcState" class="dcState">desligado</span></label>
-
-      <label class="field">App ID
-        <input type="text" id="dcAppId" inputmode="numeric" spellcheck="false" placeholder="cole aqui o Application ID">
-      </label>
-
-      <label class="field">Primeira linha
-        <select id="dcType">
-          <option value="0">Jogando …</option>
-          <option value="3">Assistindo …</option>
-          <option value="2">Ouvindo …</option>
-          <option value="5">Competindo em …</option>
+    <section class="panel" data-panel="quality">
+      <header class="panel-head"><span class="chev"></span>Qualidade</header>
+      <div class="panel-body">
+        <select id="preset">
+          <option value="leve">Leve — 720p · 10 fps · 0,8 Mb/s</option>
+          <option value="normal" selected>Normal — 1080p · 15 fps · 2 Mb/s</option>
+          <option value="nitido">Nítido — 1440p · 24 fps · 4 Mb/s</option>
+          <option value="custom">Personalizado</option>
         </select>
-      </label>
 
-      <label class="field">Segunda linha
-        <input type="text" id="dcText" maxlength="128" placeholder="Compartilhando a tela">
-      </label>
+        <div class="grid3">
+          <label>Resolução
+            <select id="res">
+              <option value="0">Original</option>
+              <option value="2160">2160p</option>
+              <option value="1440">1440p</option>
+              <option value="1080" selected>1080p</option>
+              <option value="900">900p</option>
+              <option value="720">720p</option>
+              <option value="540">540p</option>
+              <option value="360">360p</option>
+            </select>
+          </label>
+          <label>FPS
+            <select id="fps">
+              <option value="5">5</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+              <option value="12">12</option>
+              <option value="15" selected>15</option>
+              <option value="20">20</option>
+              <option value="24">24</option>
+              <option value="30">30</option>
+              <option value="60">60</option>
+            </select>
+          </label>
+          <label>Taxa
+            <select id="kbps">
+              <option value="400">0,4M</option>
+              <option value="600">0,6M</option>
+              <option value="800">0,8M</option>
+              <option value="1200">1,2M</option>
+              <option value="2000" selected>2M</option>
+              <option value="3000">3M</option>
+              <option value="4000">4M</option>
+              <option value="6000">6M</option>
+              <option value="8000">8M</option>
+              <option value="12000">12M</option>
+            </select>
+          </label>
+        </div>
 
-      <label class="field">Convite do servidor <span class="opt">(2º botão, opcional)</span>
-        <input type="text" id="dcInvite" spellcheck="false" placeholder="https://discord.gg/xxxx">
-      </label>
+        <select id="hint">
+          <option value="detail" selected>Priorizar nitidez (código, texto, planilha)</option>
+          <option value="motion">Priorizar fluidez (vídeo, animação, jogo)</option>
+        </select>
 
-      <div class="dcCard" id="dcPreview">
-        <div class="dcCardHead">Como vai aparecer</div>
-        <div class="dcBody">
-          <div class="dcThumb" id="dcThumbBox">tela</div>
-          <div class="dcLines">
-            <b id="pvTop">Jogando …</b>
-            <span id="pvDetails">Compartilhando a tela</span>
-            <span id="pvState">ninguém assistindo ainda</span>
-            <span class="dcTime">00:42 decorridos</span>
+        <label class="check">
+          <input type="checkbox" id="showPreview">
+          <span>Mostrar prévia da minha tela <b>(gasta CPU e pode travar a transmissão)</b></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel" data-panel="delivery">
+      <header class="panel-head"><span class="chev"></span>Entrega<span class="chip" id="modeChip">WebRTC</span></header>
+      <div class="panel-body">
+        <select id="mode">
+          <option value="webrtc" selected>WebRTC — tempo real (recomendado)</option>
+          <option value="relay">Compatível — passa pelo túnel (~1s de atraso)</option>
+        </select>
+        <label class="check">
+          <input type="checkbox" id="autoFallback" checked>
+          <span>Trocar para o modo compatível sozinho se alguém não conseguir conectar por WebRTC.</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="panel" id="discordBlock" data-panel="discord">
+      <header class="panel-head"><span class="chev"></span>Discord<span class="chip"><span class="dot" id="dcDot"></span><span id="dcState">desligado</span></span></header>
+      <div class="panel-body">
+        <label class="fld">Application ID
+          <input type="text" id="dcAppId" inputmode="numeric" spellcheck="false" placeholder="cole o Application ID">
+        </label>
+
+        <div class="two">
+          <label class="fld">Primeira linha
+            <select id="dcType">
+              <option value="0">Jogando …</option>
+              <option value="3">Assistindo …</option>
+              <option value="2">Ouvindo …</option>
+              <option value="5">Competindo em …</option>
+            </select>
+          </label>
+          <label class="fld">Segunda linha
+            <input type="text" id="dcText" maxlength="128" placeholder="Compartilhando a tela">
+          </label>
+        </div>
+
+        <label class="fld">Convite do servidor <span class="opt">(2º botão, opcional)</span>
+          <input type="text" id="dcInvite" spellcheck="false" placeholder="https://discord.gg/xxxx">
+        </label>
+
+        <div class="dcCard" id="dcPreview">
+          <div class="dcCardHead">Prévia do status</div>
+          <div class="dcBody">
+            <div class="dcThumb" id="dcThumbBox">tela</div>
+            <div class="dcLines">
+              <b id="pvTop">Jogando …</b>
+              <span id="pvDetails">Compartilhando a tela</span>
+              <span id="pvState">ninguém assistindo ainda</span>
+              <span class="dcTime">00:42 decorridos</span>
+            </div>
+          </div>
+          <div class="dcBtns">
+            <span id="pvBtn1">Assistir a tela</span>
+            <span id="pvBtn2" hidden>Entrar no servidor</span>
           </div>
         </div>
-        <div class="dcBtns">
-          <span id="pvBtn1">Assistir a tela</span>
-          <span id="pvBtn2" hidden>Entrar no servidor</span>
+
+        <div class="two">
+          <button id="dcSave" class="primary">Salvar</button>
+          <button id="dcTest">Testar agora</button>
         </div>
+
+        <div class="verdict" id="dcVerdict" hidden></div>
+        <div class="note" id="discordNote">Sem Application ID o status fica desligado e o resto funciona igual.</div>
+
+        <label class="check">
+          <input type="checkbox" id="discordThumb" checked>
+          <span>Mandar uma miniatura borrada da tela.</span>
+        </label>
       </div>
+    </section>
 
-      <button id="dcSave" class="primary">Salvar</button>
-      <div class="note" id="discordNote">Sem App ID o status fica desligado e o resto funciona igual.</div>
+    <section class="panel" data-panel="people">
+      <header class="panel-head"><span class="chev"></span>Quem está assistindo</header>
+      <div class="panel-body">
+        <div id="people" class="people"></div>
+        <div id="banList" class="banList"></div>
+      </div>
+    </section>
 
-      <label class="check">
-        <input type="checkbox" id="discordThumb" checked>
-        <span>Mandar uma miniatura borrada da tela.</span>
-      </label>
-    </div>
-
-    <div class="block">
-      <label class="head">Quem está assistindo</label>
-      <div id="people" class="people"></div>
-      <div id="banList" class="banList"></div>
-    </div>
-
-    <div class="block">
-      <label class="head">Registro</label>
-      <div id="log"></div>
-    </div>
+    <section class="panel collapsed" data-panel="log">
+      <header class="panel-head"><span class="chev"></span>Registro</header>
+      <div class="panel-body">
+        <div id="log"></div>
+      </div>
+    </section>
   </aside>
 </main>
 
@@ -570,6 +621,7 @@ async function start() {
   $('startBtn').disabled = true;
   $('stopBtn').disabled = false;
   startedAt = Date.now();
+  $('liveChip').textContent = 'no ar';
 
   await applyQuality();
   log('capturando' + (stream.getAudioTracks().length ? ' com áudio' : ' sem áudio'));
@@ -591,6 +643,7 @@ function stop() {
   $('startBtn').disabled = false;
   $('stopBtn').disabled = true;
   startedAt = 0;
+  $('liveChip').textContent = 'parado';
   $('statTime').textContent = '00:00';
   $('statRate').textContent = '—';
   $('statRes').textContent = '—';
@@ -742,6 +795,42 @@ function dcPreview() {
   $('dcThumbBox').style.display = $('discordThumb').checked ? '' : 'none';
 }
 
+function dcVerdict(kind, text) {
+  const el = $('dcVerdict');
+  el.hidden = false;
+  el.className = 'verdict' + (kind ? ' ' + kind : '');
+  el.textContent = text;
+}
+
+async function dcTest() {
+  $('dcTest').disabled = true;
+  dcVerdict('', 'Mandando um status de teste...');
+  try {
+    const r = await fetch('/discord-test?k=' + encodeURIComponent(KEY), { method: 'POST' });
+    const j = await r.json();
+    if (!j.ok) {
+      dcVerdict('bad', 'Não deu: ' + j.why);
+    } else {
+      await new Promise((res) => setTimeout(res, 1000));
+      const s = await dcFetch();
+      dcApplyStatus(s);
+      const lr = s.lastResult;
+      if (lr && lr.ok) {
+        dcVerdict('good', 'O Discord ACEITOU o status. Se mesmo assim não aparece no seu perfil, '
+          + 'abra Configurações do Discord → Privacidade de atividade e ligue '
+          + '"Exibir a atividade atual como mensagem de status". É o motivo em quase todos os casos.');
+      } else if (lr) {
+        dcVerdict('bad', 'O Discord recusou: ' + lr.message);
+      } else {
+        dcVerdict('bad', 'Mandei, mas o Discord não respondeu.');
+      }
+    }
+  } catch (e) {
+    dcVerdict('bad', 'Erro ao testar: ' + e.message);
+  }
+  $('dcTest').disabled = false;
+}
+
 // so' mexe no aviso e no estado — nunca nos campos, senao apaga o que estão digitando
 function dcApplyStatus(s) {
   dcAppName = s.appName || '';
@@ -860,6 +949,7 @@ function switchMode(next) {
   if (next === mode) return;
   mode = next;
   $('modeLabel').textContent = 'modo: ' + (mode === 'relay' ? 'compatível' : 'WebRTC');
+  $('modeChip').textContent = mode === 'relay' ? 'compatível' : 'WebRTC';
   wsSend({ t: 'mode', mode: mode });
 
   if (mode === 'relay') {
@@ -945,6 +1035,23 @@ $('hint').onchange = applyQuality;
 $('showPreview').onchange = renderStage;
 $('discordThumb').onchange = () => { dcPreview(); if (stream && $('discordThumb').checked) sendThumb(); };
 $('dcSave').onclick = dcSave;
+$('dcTest').onclick = dcTest;
+
+// docks colapsaveis, lembrando o que ficou fechado
+document.querySelectorAll('.panel-head').forEach((h) => {
+  h.onclick = () => {
+    const p = h.parentElement;
+    p.classList.toggle('collapsed');
+    try { localStorage.setItem('ss.panel.' + p.dataset.panel, p.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+  };
+});
+document.querySelectorAll('.panel').forEach((p) => {
+  try {
+    const v = localStorage.getItem('ss.panel.' + p.dataset.panel);
+    if (v === '1') p.classList.add('collapsed');
+    else if (v === '0') p.classList.remove('collapsed');
+  } catch (e) {}
+});
 ['dcText', 'dcInvite'].forEach((id) => { $(id).oninput = dcPreview; });
 $('dcType').onchange = dcPreview;
 dcLoad();

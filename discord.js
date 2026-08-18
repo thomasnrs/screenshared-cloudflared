@@ -61,6 +61,7 @@ class Presence {
     this.buf = Buffer.alloc(0);
     this.warned = false;
     this.showing = false;   // ja tem atividade aparecendo no perfil?
+    this.lastResult = null; // veredito do Discord sobre a ultima atividade
   }
 
   start() {
@@ -150,9 +151,21 @@ class Presence {
       return;
     }
 
+    // guarda o veredito da ultima atividade, para o painel poder mostrar
+    if (msg.cmd === 'SET_ACTIVITY') {
+      if (msg.evt === 'ERROR') {
+        const d = msg.data || {};
+        this.lastResult = { ok: false, message: d.message || JSON.stringify(d), at: Date.now() };
+        this.log('Discord recusou a atividade: ' + this.lastResult.message);
+      } else {
+        this.lastResult = { ok: true, message: 'aceito pelo Discord', at: Date.now() };
+      }
+      return;
+    }
+
     if (msg.evt === 'ERROR') {
       const d = msg.data || {};
-      this.log('Discord recusou a atividade: ' + (d.message || JSON.stringify(d)));
+      this.log('Discord respondeu com erro: ' + (d.message || JSON.stringify(d)));
     }
   }
 

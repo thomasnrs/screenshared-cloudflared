@@ -1,8 +1,12 @@
 :root {
   --bg: #0d0f13;
-  --panel: #161a21;
-  --panel-2: #1d222b;
-  --line: #2a313d;
+  --stage: #0a0c10;
+  --bar: #14181e;
+  --panel: #171c23;
+  --panel-2: #1e242d;
+  --head: #1f2630;
+  --head-hover: #262e3a;
+  --line: #2b323e;
   --text: #e8ecf2;
   --dim: #9aa4b2;
   --accent: #4f8cff;
@@ -26,8 +30,8 @@ button {
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 16px;
+  border-radius: 4px;
+  padding: 7px 14px;
   cursor: pointer;
   transition: background .12s, border-color .12s;
 }
@@ -41,11 +45,12 @@ button.danger:hover:not(:disabled) { background: #4a262a; }
 select, input[type="text"] {
   font: inherit;
   color: var(--text);
-  background: var(--panel-2);
+  background: #10141a;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 3px;
+  padding: 7px 9px;
 }
+select:focus, input[type="text"]:focus { outline: none; border-color: var(--accent); }
 
 a { color: var(--accent); }
 
