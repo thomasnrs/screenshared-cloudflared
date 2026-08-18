@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>telar - painel do transmissor</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header .status { color: var(--dim); font-size: 13px; }
+  header .spacer { flex: 1; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 320px; min-height: 0; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+
+  .stage { display: flex; align-items: center; justify-content: center; padding: 16px; min-height: 0; background: #07090c; }
+  .stage video { max-width: 100%; max-height: 100%; border-radius: 10px; background: #000; border: 1px solid var(--line); }
+  .stage .empty { color: var(--dim); text-align: center; max-width: 380px; }
+  .stage .empty h2 { color: var(--text); font-size: 18px; margin: 0 0 8px; }
+
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+  @media (max-width: 860px) { aside { border-left: 0; border-top: 1px solid var(--line); } }
+
+  .block { display: flex; flex-direction: column; gap: 8px; }
+  .block > label.head { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+
+  .link {
+    display: flex; gap: 6px; align-items: stretch;
+  }
+  .link input { flex: 1; min-width: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .link button { flex: 0 0 auto; padding: 8px 12px; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+
+  .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--dim); cursor: pointer; }
+  .check input { margin-top: 3px; }
+
+  .note { font-size: 12px; color: var(--dim); line-height: 1.45; }
+  .note.warn { color: var(--warn); }
+
+  #log { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--dim);
+         background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+         height: 110px; overflow-y: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>telar</h1>
+  <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
+  <span class="spacer"></span>
+  <span class="status" id="modeLabel">modo: WebRTC</span>
+</header>
+
+<main>
+  <div class="stage">
+    <video id="preview" autoplay muted playsinline style="display:none"></video>
+    <div class="empty" id="empty">
+      <h2>Nada sendo transmitido</h2>
+      <p>Clique em <b>Compartilhar tela</b> e escolha a tela, janela ou aba.
+      Para levar o áudio junto, marque <i>compartilhar áudio</i> na janela de seleção do navegador.</p>
+    </div>
+  </div>
+
+  <aside>
+    <div class="block">
+      <label class="head">Link para compartilhar</label>
+      <div class="link">
+        <input type="text" id="shareUrl" readonly value="aguardando túnel...">
+        <button id="copyBtn" title="Copiar">Copiar</button>
+      </div>
+      <div class="note" id="linkNote">Quem abrir esse link vê sua tela. Não publique em lugar aberto.</div>
+    </div>
+
+    <div class="block">
+      <label class="head">Transmissão</label>
+      <button id="startBtn" class="primary">Compartilhar tela</button>
+      <button id="stopBtn" class="danger" disabled>Parar</button>
+    </div>
+
+    <div class="block">
+      <label class="head">Qualidade</label>
+      <select id="quality">
+        <option value="leve">Leve — 720p / 10 fps / ~0,7 Mbps</option>
+        <option value="normal" selected>Normal — 1080p / 15 fps / ~1,8 Mbps</option>
+        <option value="nitido">Nítido — 1440p / 24 fps / ~4 Mbps</option>
+      </select>
+      <select id="hint">
+        <option value="detail" selected>Priorizar nitidez (código, texto, planilha)</option>
+        <option value="motion">Priorizar fluidez (vídeo, animação, jogo)</option>
+      </select>
+    </div>
+
+    <div class="block">
+      <label class="head">Entrega</label>
+      <select id="mode">
+        <option value="webrtc" selected>WebRTC — tempo real (recomendado)</option>
+        <option value="relay">Compatível — passa pelo túnel (~1s de atraso)</option>
+      </select>
+      <label class="check">
+        <input type="checkbox" id="autoFallback" checked>
+        <span>Trocar para o modo compatível sozinho se alguém não conseguir conectar por WebRTC.</span>
+      </label>
+    </div>
+
+    <div class="block">
+      <label class="head">Situação</label>
+      <div class="stats">
+        <div class="stat"><b id="statViewers">0</b><span>assistindo</span></div>
+        <div class="stat"><b id="statTime">00:00</b><span>no ar</span></div>
+        <div class="stat"><b id="statRate">—</b><span>envio</span></div>
+        <div class="stat"><b id="statRes">—</b><span>resolução</span></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <label class="head">Registro</label>
+      <div id="log"></div>
+    </div>
+  </aside>
+</main>
+
+<script>
+'use strict';
+
+const PRESETS = {
+  leve:   { h: 720,  fps: 10, kbps: 700 },
+  normal: { h: 1080, fps: 15, kbps: 1800 },
+  nitido: { h: 1440, fps: 24, kbps: 4000 },
+};
+
+const $ = (id) => document.getElementById(id);
+const KEY = new URLSearchParams(location.search).get('k') || '';
+
+let ws = null;
+let stream = null;
+let mode = 'webrtc';
+let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+const peers = new Map();      // viewerId -> RTCPeerConnection
+const knownViewers = new Set();
+
+let recorder = null;
+let sendChain = Promise.resolve();
+let lastKick = 0;
+let startedAt = 0;
+let bytesWindow = 0;
+
+// ------------------------------------------------------------------ util
+
+function log(msg) {
+  const el = $('log');
+  const t = new Date().toLocaleTimeString('pt-BR', { hour12: false });
+  el.textContent += '[' + t + '] ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(kind, text) {
+  $('dot').className = 'dot ' + kind;
+  $('statusText').textContent = text;
+}
+
+function fmtRate(bps) {
+  if (!bps) return '—';
+  if (bps > 1000000) return (bps / 1000000).toFixed(1) + ' Mb/s';
+  return Math.round(bps / 1000) + ' kb/s';
+}
+
+function preset() { return PRESETS[$('quality').value] || PRESETS.normal; }
+
+// ------------------------------------------------------------------ ws
+
+function wsSend(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host + '/ws?role=broadcast&key=' + encodeURIComponent(KEY));
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setStatus('on', 'painel conectado');
+    log('painel conectado ao servidor');
+    wsSend({ t: 'mode', mode: mode });
+  };
+
+  ws.onclose = () => {
+    setStatus('off', 'servidor caiu — reconectando');
+    setTimeout(connect, 1500);
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = async (ev) => {
+    if (typeof ev.data !== 'string') return;
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+
+    switch (m.t) {
+      case 'welcome':
+        knownViewers.clear();
+        (m.viewers || []).forEach((id) => knownViewers.add(id));
+        $('statViewers').textContent = m.n || 0;
+        // reconexão no meio da transmissão: refaz a entrega para quem já estava lá
+        if (stream) {
+          wsSend({ t: 'live', live: true });
+          if (mode === 'relay') restartRecorder();
+          else knownViewers.forEach(offerTo);
+        }
+        break;
+
+      case 'kicked':
+        setStatus('off', 'outro painel assumiu');
+        log('outro painel do transmissor assumiu esta sessão');
+        ws.onclose = null;
+        break;
+
+      case 'count':
+        $('statViewers').textContent = m.n;
+        break;
+
+      case 'viewer-join':
+        knownViewers.add(m.id);
+        $('statViewers').textContent = m.n;
+        log('espectador #' + m.id + ' entrou');
+        if (!stream) break;
+        if (mode === 'webrtc') offerTo(m.id);
+        else kickRecorder();   // força um keyframe novo pra quem acabou de chegar
+        break;
+
+      case 'viewer-leave':
+        knownViewers.delete(m.id);
+        $('statViewers').textContent = m.n;
+        closePeer(m.id);
+        log('espectador #' + m.id + ' saiu');
+        break;
+
+      case 'sdp': {
+        const pc = peers.get(m.from);
+        if (pc && m.data && m.data.type === 'answer') {
+          try { await pc.setRemoteDescription(m.data); } catch (e) { log('sdp: ' + e.message); }
+        }
+        break;
+      }
+
+      case 'ice': {
+        const pc = peers.get(m.from);
+        if (pc && m.data) { try { await pc.addIceCandidate(m.data); } catch (e) {} }
+        break;
+      }
+
+      case 'webrtc-failed':
+        log('espectador #' + m.from + ' não conseguiu conectar por WebRTC');
+        if ($('autoFallback').checked && mode === 'webrtc') {
+          log('trocando para o modo compatível');
+          $('mode').value = 'relay';
+          switchMode('relay');
+        }
+        break;
+    }
+  };
+}
+
+// ------------------------------------------------------------------ captura
+
+async function start() {
+  const p = preset();
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: p.fps, max: p.fps }, height: { max: p.h } },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+  } catch (e) {
+    log('captura cancelada: ' + e.message);
+    return;
+  }
+
+  const vt = stream.getVideoTracks()[0];
+  vt.contentHint = $('hint').value;
+  vt.addEventListener('ended', stop);
+
+  $('preview').srcObject = stream;
+  $('preview').style.display = '';
+  $('empty').style.display = 'none';
+  $('startBtn').disabled = true;
+  $('stopBtn').disabled = false;
+  startedAt = Date.now();
+
+  await applyQuality();
+  log('capturando' + (stream.getAudioTracks().length ? ' com áudio' : ' sem áudio'));
+
+  wsSend({ t: 'live', live: true });
+  if (mode === 'webrtc') knownViewers.forEach(offerTo);
+  else startRecorder();
+}
+
+function stop() {
+  if (!stream) return;
+  stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+  stream = null;
+  stopRecorder();
+  peers.forEach((pc, id) => closePeer(id));
+  $('preview').srcObject = null;
+  $('preview').style.display = 'none';
+  $('empty').style.display = '';
+  $('startBtn').disabled = false;
+  $('stopBtn').disabled = true;
+  startedAt = 0;
+  $('statTime').textContent = '00:00';
+  $('statRate').textContent = '—';
+  $('statRes').textContent = '—';
+  wsSend({ t: 'live', live: false });
+  log('transmissão encerrada');
+}
+
+async function applyQuality() {
+  if (!stream) return;
+  const p = preset();
+  const vt = stream.getVideoTracks()[0];
+  if (!vt) return;
+  vt.contentHint = $('hint').value;
+  try {
+    await vt.applyConstraints({ frameRate: { ideal: p.fps, max: p.fps }, height: { max: p.h } });
+  } catch (e) { /* nem todo navegador aceita reconstranger captura de tela */ }
+
+  for (const pc of peers.values()) await tuneSender(pc);
+  if (mode === 'relay' && stream) restartRecorder();
+}
+
+async function tuneSender(pc) {
+  const p = preset();
+  const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
+  if (!sender) return;
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings || !params.encodings.length) params.encodings = [{}];
+    params.encodings[0].maxBitrate = p.kbps * 1000;
+    params.encodings[0].maxFramerate = p.fps;
+    params.degradationPreference = $('hint').value === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+    await sender.setParameters(params);
+  } catch (e) {}
+}
+
+// ------------------------------------------------------------------ webrtc
+
+async function offerTo(id) {
+  if (!stream) return;
+  closePeer(id);
+  const pc = new RTCPeerConnection({ iceServers: iceServers, bundlePolicy: 'max-bundle' });
+  peers.set(id, pc);
+
+  stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+
+  pc.onicecandidate = (e) => { if (e.candidate) wsSend({ t: 'ice', to: id, data: e.candidate }); };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') log('espectador #' + id + ' conectado (WebRTC)');
+    if (pc.connectionState === 'failed') log('espectador #' + id + ' falhou (WebRTC)');
+  };
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await tuneSender(pc);
+    wsSend({ t: 'sdp', to: id, data: pc.localDescription });
+  } catch (e) {
+    log('erro ao ofertar para #' + id + ': ' + e.message);
+  }
+}
+
+function closePeer(id) {
+  const pc = peers.get(id);
+  if (!pc) return;
+  peers.delete(id);
+  try { pc.close(); } catch (e) {}
+}
+
+// ------------------------------------------------------------------ relay
+
+function pickMime() {
+  const audio = stream && stream.getAudioTracks().length > 0;
+  const list = audio
+    ? ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']
+    : ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
+  for (const m of list) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return 'video/webm';
+}
+
+function startRecorder() {
+  if (!stream || recorder) return;
+  const p = preset();
+  const mime = pickMime();
+  let rec;
+  try {
+    rec = new MediaRecorder(stream, {
+      mimeType: mime,
+      videoBitsPerSecond: p.kbps * 1000,
+      audioBitsPerSecond: 96000,
+    });
+  } catch (e) {
+    log('MediaRecorder falhou: ' + e.message);
+    return;
+  }
+
+  let first = true;
+  rec.ondataavailable = (e) => {
+    if (rec !== recorder || !e.data || !e.data.size) return;   // descarta sobra de gravador antigo
+    if (first) {
+      first = false;
+      sendChain = sendChain.then(() => wsSend({ t: 'relay-init', mime: mime }));
+    }
+    const blob = e.data;
+    bytesWindow += blob.size;
+    sendChain = sendChain
+      .then(() => blob.arrayBuffer())
+      .then((buf) => {
+        if (ws && ws.readyState === 1 && ws.bufferedAmount < 8 * 1024 * 1024) ws.send(buf);
+      })
+      .catch(() => {});
+  };
+
+  recorder = rec;
+  try { rec.start(300); } catch (e) { log('gravador: ' + e.message); recorder = null; }
+}
+
+function stopRecorder() {
+  const old = recorder;
+  recorder = null;
+  if (old && old.state !== 'inactive') { try { old.stop(); } catch (e) {} }
+}
+
+function restartRecorder() {
+  if (!stream || mode !== 'relay') return;
+  stopRecorder();
+  startRecorder();
+  lastKick = performance.now();
+}
+
+// quem entra no meio da transmissão só decodifica a partir de um keyframe;
+// reiniciar o gravador emite cabeçalho + keyframe na hora (no máximo a cada 2,5s)
+function kickRecorder() {
+  if (mode !== 'relay' || !stream) return;
+  if (performance.now() - lastKick < 2500) return;
+  restartRecorder();
+}
+
+// ------------------------------------------------------------------ modo
+
+function switchMode(next) {
+  if (next === mode) return;
+  mode = next;
+  $('modeLabel').textContent = 'modo: ' + (mode === 'relay' ? 'compatível' : 'WebRTC');
+  wsSend({ t: 'mode', mode: mode });
+
+  if (mode === 'relay') {
+    peers.forEach((pc, id) => closePeer(id));
+    if (stream) restartRecorder();
+  } else {
+    stopRecorder();
+    if (stream) knownViewers.forEach(offerTo);
+  }
+  log('entrega: ' + (mode === 'relay' ? 'modo compatível (relay)' : 'WebRTC'));
+}
+
+// ------------------------------------------------------------------ stats
+
+setInterval(async () => {
+  if (startedAt) {
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    $('statTime').textContent =
+      String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  if (stream) {
+    const st = stream.getVideoTracks()[0] && stream.getVideoTracks()[0].getSettings();
+    if (st && st.width) $('statRes').textContent = st.width + '×' + st.height;
+  }
+
+  if (mode === 'relay') {
+    $('statRate').textContent = fmtRate(bytesWindow * 8);
+    bytesWindow = 0;
+  } else {
+    const pc = peers.values().next().value;
+    if (!pc) { $('statRate').textContent = '—'; return; }
+    try {
+      const stats = await pc.getStats();
+      let bytes = 0;
+      stats.forEach((r) => { if (r.type === 'outbound-rtp' && r.kind === 'video') bytes = r.bytesSent; });
+      if (pc._lastBytes != null) $('statRate').textContent = fmtRate((bytes - pc._lastBytes) * 8);
+      pc._lastBytes = bytes;
+    } catch (e) {}
+  }
+}, 1000);
+
+// ------------------------------------------------------------------ link público
+
+async function refreshConfig() {
+  try {
+    const cfg = await (await fetch('/config.json', { cache: 'no-store' })).json();
+    if (cfg.iceServers && cfg.iceServers.length) iceServers = cfg.iceServers;
+    if (cfg.publicUrl) {
+      $('shareUrl').value = cfg.publicUrl;
+      $('linkNote').textContent = 'Quem abrir esse link vê sua tela. Não publique em lugar aberto.';
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+(async function pollUrl() {
+  for (let i = 0; i < 120; i++) {
+    if (await refreshConfig()) return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  $('shareUrl').value = location.origin;
+  $('linkNote').textContent = 'Túnel não subiu — este link só funciona na rede local.';
+  $('linkNote').className = 'note warn';
+})();
+
+// ------------------------------------------------------------------ ligações
+
+$('startBtn').onclick = start;
+$('stopBtn').onclick = stop;
+$('quality').onchange = applyQuality;
+$('hint').onchange = applyQuality;
+$('mode').onchange = (e) => switchMode(e.target.value);
+$('copyBtn').onclick = async () => {
+  const v = $('shareUrl').value;
+  try { await navigator.clipboard.writeText(v); } catch (e) { $('shareUrl').select(); document.execCommand('copy'); }
+  $('copyBtn').textContent = 'Copiado';
+  setTimeout(() => { $('copyBtn').textContent = 'Copiar'; }, 1200);
+};
+
+window.addEventListener('beforeunload', () => { if (stream) wsSend({ t: 'live', live: false }); });
+
+if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+  $('startBtn').disabled = true;
+  log('este navegador não expõe captura de tela — use Chrome, Edge ou Firefox no desktop');
+}
+
+connect();
+</script>
+</body>
+</html>

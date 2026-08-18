@@ -1,0 +1,64 @@
+:root {
+  --bg: #0d0f13;
+  --panel: #161a21;
+  --panel-2: #1d222b;
+  --line: #2a313d;
+  --text: #e8ecf2;
+  --dim: #9aa4b2;
+  --accent: #4f8cff;
+  --ok: #35c17e;
+  --warn: #f0b429;
+  --bad: #f2555a;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+button:hover:not(:disabled) { background: #262d38; border-color: #3a4352; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary:hover:not(:disabled) { background: #3d7bf0; border-color: #3d7bf0; }
+button.danger { background: #3a1f22; border-color: #5c2d31; color: #ff9ea1; }
+button.danger:hover:not(:disabled) { background: #4a262a; }
+
+select, input[type="text"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+a { color: var(--accent); }
+
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.dot.on { background: var(--ok); box-shadow: 0 0 0 3px rgba(53,193,126,.18); }
+.dot.warn { background: var(--warn); }
+.dot.off { background: var(--bad); }
+
+.mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }

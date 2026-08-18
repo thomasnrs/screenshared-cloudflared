@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>telar</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { display: flex; flex-direction: column; background: #000; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 700; letter-spacing: .3px; }
+  header .status { font-size: 13px; color: var(--dim); }
+  header .spacer { flex: 1; }
+  header button { padding: 6px 12px; font-size: 13px; }
+
+  .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; text-align: center; padding: 24px;
+    background: radial-gradient(ellipse at center, #12161d 0%, #06080b 100%);
+  }
+  .overlay h2 { margin: 0; font-size: 20px; font-weight: 700; }
+  .overlay p { margin: 0; color: var(--dim); max-width: 420px; }
+  .overlay.hidden { display: none; }
+
+  .spinner {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 3px solid var(--line); border-top-color: var(--accent);
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .toast {
+    position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: rgba(20,24,31,.94); border: 1px solid var(--line); border-radius: 999px;
+    padding: 9px 18px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  }
+  .toast.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>telar</h1>
+  <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
+  <span class="spacer"></span>
+  <span class="status" id="viewerCount"></span>
+  <button id="soundBtn" hidden>Ativar som</button>
+  <button id="fsBtn">Tela cheia</button>
+</header>
+
+<div class="stage">
+  <video id="video" autoplay playsinline muted></video>
+
+  <div class="overlay" id="overlay">
+    <div class="spinner" id="spinner"></div>
+    <h2 id="ovTitle">Conectando</h2>
+    <p id="ovText">Aguardando o servidor.</p>
+    <button id="playBtn" class="primary" hidden>Tocar</button>
+  </div>
+
+  <div class="toast hidden" id="toast"></div>
+</div>
+
+<script>
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+const video = $('video');
+const PIN = new URLSearchParams(location.search).get('p') || '';
+
+let ws = null;
+let mode = 'webrtc';
+let live = false;
+let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+let pc = null;
+let failTimer = null;
+
+let ms = null, sb = null, sbMime = '';
+const queue = [];
+
+// ------------------------------------------------------------------ ui
+
+function setStatus(kind, text) {
+  $('dot').className = 'dot ' + kind;
+  $('statusText').textContent = text;
+}
+
+function overlay(title, text, spinner) {
+  $('overlay').classList.remove('hidden');
+  $('ovTitle').textContent = title;
+  $('ovText').textContent = text;
+  $('spinner').style.display = spinner ? '' : 'none';
+}
+
+function hideOverlay() { $('overlay').classList.add('hidden'); }
+
+let toastTimer = null;
+function toast(msg) {
+  $('toast').textContent = msg;
+  $('toast').classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.add('hidden'), 3000);
+}
+
+function tryPlay() {
+  const p = video.play();
+  if (p && p.catch) p.catch(() => { $('playBtn').hidden = false; overlay('Pronto', 'Clique para começar a assistir.', false); });
+}
+
+// ------------------------------------------------------------------ ws
+
+function wsSend(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host + '/ws?role=view' + (PIN ? '&pin=' + encodeURIComponent(PIN) : ''));
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => setStatus('warn', 'conectado');
+
+  ws.onclose = () => {
+    setStatus('off', 'sem conexão — tentando de novo');
+    overlay('Conexão perdida', 'Tentando reconectar...', true);
+    teardown();
+    setTimeout(connect, 1500);
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = async (ev) => {
+    if (typeof ev.data !== 'string') { onChunk(ev.data); return; }
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+
+    switch (m.t) {
+      case 'welcome':
+        mode = m.mode;
+        live = m.live;
+        if (m.title) document.title = m.title + ' — telar';
+        updateIdle();
+        break;
+
+      case 'mode':
+        mode = m.mode;
+        teardown();
+        updateIdle();
+        break;
+
+      case 'live':
+        live = m.live;
+        if (m.mode) mode = m.mode;
+        if (!live) { teardown(); }
+        updateIdle();
+        break;
+
+      case 'offline':
+        live = false;
+        teardown();
+        setStatus('off', 'transmissor offline');
+        overlay('Transmissor saiu', 'A página vai voltar sozinha quando ele reabrir.', true);
+        break;
+
+      case 'title':
+        if (m.title) document.title = m.title + ' — telar';
+        break;
+
+      case 'count':
+        $('viewerCount').textContent = m.n ? m.n + ' assistindo' : '';
+        break;
+
+      case 'relay-init':
+        setupRelay(m.mime);
+        break;
+
+      case 'sdp':
+        if (m.data && m.data.type === 'offer') await onOffer(m.data);
+        break;
+
+      case 'ice':
+        if (pc && m.data) { try { await pc.addIceCandidate(m.data); } catch (e) {} }
+        break;
+    }
+  };
+}
+
+function updateIdle() {
+  if (live) {
+    setStatus('on', mode === 'relay' ? 'no ar (compatível)' : 'no ar (WebRTC)');
+    overlay('Recebendo vídeo', 'Só um instante...', true);
+  } else {
+    setStatus('warn', 'aguardando transmissão');
+    overlay('Ninguém transmitindo ainda', 'Assim que a tela for compartilhada, o vídeo aparece aqui sozinho.', true);
+  }
+}
+
+// ------------------------------------------------------------------ webrtc
+
+async function onOffer(offer) {
+  teardownPeer();
+  pc = new RTCPeerConnection({ iceServers: iceServers, bundlePolicy: 'max-bundle' });
+
+  pc.ontrack = (e) => {
+    if (video.srcObject !== e.streams[0]) {
+      if (video.getAttribute('src')) video.removeAttribute('src');
+      video.srcObject = e.streams[0];
+      hideOverlay();
+      tryPlay();
+      $('soundBtn').hidden = false;
+    }
+  };
+
+  pc.onicecandidate = (e) => { if (e.candidate) wsSend({ t: 'ice', data: e.candidate }); };
+
+  pc.onconnectionstatechange = () => {
+    if (!pc) return;
+    if (pc.connectionState === 'connected') {
+      clearTimeout(failTimer);
+      setStatus('on', 'no ar (WebRTC)');
+    }
+    if (pc.connectionState === 'failed') reportFailure();
+  };
+
+  try {
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    wsSend({ t: 'sdp', data: pc.localDescription });
+  } catch (e) {
+    reportFailure();
+    return;
+  }
+
+  clearTimeout(failTimer);
+  failTimer = setTimeout(() => {
+    if (pc && pc.connectionState !== 'connected') reportFailure();
+  }, 10000);
+}
+
+let reported = false;
+function reportFailure() {
+  if (reported) return;
+  reported = true;
+  setTimeout(() => { reported = false; }, 15000);
+  wsSend({ t: 'webrtc-failed' });
+  overlay('Rede bloqueou o WebRTC', 'Trocando para o modo compatível...', true);
+}
+
+function teardownPeer() {
+  clearTimeout(failTimer);
+  if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+}
+
+// ------------------------------------------------------------------ relay (MSE)
+
+function setupRelay(mime) {
+  // cabeçalho novo com o mesmo codec: só continuar anexando (evita piscar a cada
+  // espectador que entra, já que o transmissor reinicia o gravador nessa hora)
+  if (sb && sbMime === mime && ms && ms.readyState === 'open') return;
+
+  teardownRelay();
+  sbMime = mime;
+  queue.length = 0;
+
+  if (!window.MediaSource || !MediaSource.isTypeSupported(mime)) {
+    overlay('Navegador incompatível', 'Este navegador não reproduz ' + mime + '. Use Chrome, Edge ou Firefox.', false);
+    return;
+  }
+
+  ms = new MediaSource();
+  video.srcObject = null;
+  video.src = URL.createObjectURL(ms);
+
+  ms.addEventListener('sourceopen', () => {
+    try {
+      sb = ms.addSourceBuffer(sbMime);
+      sb.mode = 'sequence';           // o gravador reinicia do zero; 'sequence' emenda sozinho
+      sb.addEventListener('updateend', pump);
+      pump();
+    } catch (e) {
+      overlay('Erro no player', e.message, false);
+    }
+  }, { once: true });
+}
+
+function onChunk(data) {
+  if (mode !== 'relay') return;
+  queue.push(new Uint8Array(data));
+  if (queue.length > 240) queue.splice(0, queue.length - 120);   // espectador travado: descarta atraso
+  pump();
+}
+
+function pump() {
+  if (!sb || sb.updating || !ms || ms.readyState !== 'open') return;
+
+  // poda o que já passou pra não estourar a memória do buffer
+  try {
+    if (video.buffered.length) {
+      const start = video.buffered.start(0);
+      if (video.currentTime - start > 24) { sb.remove(start, video.currentTime - 10); return; }
+    }
+  } catch (e) {}
+
+  if (!queue.length) return;
+  const chunk = queue.shift();
+  try {
+    sb.appendBuffer(chunk);
+  } catch (e) {
+    if (e.name === 'QuotaExceededError') { queue.length = 0; try { sb.remove(0, Math.max(0, video.currentTime - 4)); } catch (e2) {} }
+  }
+}
+
+function teardownRelay() {
+  if (sb) { try { sb.abort(); } catch (e) {} sb = null; }
+  if (ms) {
+    try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
+    ms = null;
+  }
+  if (video.src) { try { URL.revokeObjectURL(video.src); } catch (e) {} video.removeAttribute('src'); video.load(); }
+  sbMime = '';
+  queue.length = 0;
+}
+
+function teardown() {
+  teardownPeer();
+  teardownRelay();
+  video.srcObject = null;
+}
+
+// gruda na ponta ao vivo: se atrasou, pula pra frente
+setInterval(() => {
+  if (mode !== 'relay' || !video.buffered.length || video.readyState < 2) return;
+  const end = video.buffered.end(video.buffered.length - 1);
+  const lag = end - video.currentTime;
+  if (lag > 2.5) { video.currentTime = end - 0.35; }
+  else if (lag > 1.2) { video.playbackRate = 1.15; }
+  else if (video.playbackRate !== 1) { video.playbackRate = 1; }
+  if (video.paused) tryPlay();
+}, 1000);
+
+video.addEventListener('playing', () => {
+  hideOverlay();
+  $('playBtn').hidden = true;
+  $('soundBtn').hidden = false;
+  setStatus('on', mode === 'relay' ? 'no ar (compatível)' : 'no ar (WebRTC)');
+});
+
+// ------------------------------------------------------------------ botões
+
+$('playBtn').onclick = () => { video.muted = false; $('soundBtn').textContent = 'Mudo'; tryPlay(); hideOverlay(); };
+
+$('soundBtn').onclick = () => {
+  video.muted = !video.muted;
+  $('soundBtn').textContent = video.muted ? 'Ativar som' : 'Mudo';
+  if (!video.muted) { video.volume = 1; tryPlay(); }
+  toast(video.muted ? 'Som desligado' : 'Som ligado');
+};
+
+$('fsBtn').onclick = () => {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.querySelector('.stage').requestFullscreen().catch(() => {});
+};
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'f') $('fsBtn').click();
+  if (e.key === 'm') $('soundBtn').click();
+});
+
+video.addEventListener('dblclick', () => $('fsBtn').click());
+
+// ------------------------------------------------------------------ boot
+
+fetch('/config.json', { cache: 'no-store' })
+  .then((r) => r.json())
+  .then((cfg) => { if (cfg.iceServers && cfg.iceServers.length) iceServers = cfg.iceServers; })
+  .catch(() => {})
+  .finally(connect);
+</script>
+</body>
+</html>
