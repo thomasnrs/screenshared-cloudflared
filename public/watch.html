@@ -320,6 +320,25 @@ window.addEventListener('mouseup', () => {
 
 window.addEventListener('resize', () => { clampPan(); applyView(); });
 
+// ------------------------------------------------------------------ preferencias
+
+const PREFS = 'screenshared.view';
+
+function lerPrefs() {
+  try { const p = JSON.parse(localStorage.getItem(PREFS) || '{}'); return p && typeof p === 'object' ? p : {}; }
+  catch (e) { return {}; }
+}
+
+function salvarPrefs() {
+  try {
+    localStorage.setItem(PREFS, JSON.stringify({
+      volume: Math.round(video.volume * 100),
+      muted: video.muted,
+      chat: chatOpen(),
+    }));
+  } catch (e) {}
+}
+
 // ------------------------------------------------------------------ som
 
 function tryPlay() {
@@ -364,6 +383,7 @@ function setChat(open) {
     $('chatInput').focus();
     chatLog.scrollTop = chatLog.scrollHeight;
   }
+  salvarPrefs();
   poke();
 }
 
@@ -699,6 +719,7 @@ $('soundBtn').onclick = () => {
   video.muted = !video.muted;
   if (!video.muted) { video.volume = $('volume').value / 100; tryPlay(); }
   refreshAudioUi();
+  salvarPrefs();
   toast(video.muted ? 'Som desligado' : 'Som ligado');
 };
 
@@ -706,6 +727,7 @@ $('volume').oninput = () => {
   video.volume = $('volume').value / 100;
   if (video.volume > 0 && video.muted) video.muted = false;
   refreshAudioUi();
+  salvarPrefs();
 };
 
 $('zoomReset').onclick = resetZoom;
@@ -753,7 +775,11 @@ $('gateForm').addEventListener('submit', (e) => {
 
   // clicar em "Entrar" conta como gesto do usuário, então dá para já entrar
   // com som — sem isso o vídeo nasce mudo e a pessoa acha que não tem áudio
-  video.muted = false;
+  const p = lerPrefs();
+  video.volume = typeof p.volume === 'number' ? clamp(p.volume, 0, 100) / 100 : 1;
+  $('volume').value = Math.round(video.volume * 100);
+  video.muted = p.muted === true;          // só continua mudo se foi escolha da pessoa
+  if (p.chat === true) setChat(true);
 
   $('gate').classList.add('hidden');
   overlay('Conectando', 'Aguardando o servidor.', true);

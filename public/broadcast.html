@@ -876,6 +876,45 @@ function kickRecorder() {
   restartRecorder();
 }
 
+// ------------------------------------------------------------------ preferencias
+
+// O servidor guarda a config do Discord, mas se o /settings falhar (chave velha,
+// servidor reiniciando) os campos nasciam vazios mesmo com tudo salvo. Guardar
+// uma cópia aqui faz o painel abrir preenchido em qualquer caso — e de quebra
+// lembra qualidade, entrega e prévia, que antes resetavam toda vez.
+const PREFS = 'screenshared.prefs';
+
+const CAMPOS = ['preset', 'res', 'fps', 'kbps', 'hint', 'mode', 'dcAppId', 'dcInvite', 'dcText', 'dcType'];
+const CAIXAS = ['showPreview', 'autoFallback', 'discordThumb'];
+
+function savePrefs() {
+  const p = {};
+  CAMPOS.forEach((id) => { p[id] = $(id).value; });
+  CAIXAS.forEach((id) => { p[id] = $(id).checked; });
+  try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch (e) {}
+}
+
+function applyPrefs() {
+  let p = {};
+  try { p = JSON.parse(localStorage.getItem(PREFS) || '{}') || {}; } catch (e) {}
+  if (typeof p !== 'object') return;
+
+  CAMPOS.forEach((id) => {
+    const v = p[id];
+    if (typeof v !== 'string') return;
+    const el = $(id);
+    // valor que não existe mais na lista deixaria o select em branco
+    if (el.tagName === 'SELECT' && !Array.from(el.options).some((o) => o.value === v)) return;
+    el.value = v;
+  });
+  CAIXAS.forEach((id) => { if (typeof p[id] === 'boolean') $(id).checked = p[id]; });
+
+  // o modo precisa valer de verdade, não só aparecer escolhido
+  mode = $('mode').value === 'relay' ? 'relay' : 'webrtc';
+  $('modeLabel').textContent = 'modo: ' + (mode === 'relay' ? 'compatível' : 'WebRTC');
+  $('modeChip').textContent = mode === 'relay' ? 'compatível' : 'WebRTC';
+}
+
 // ------------------------------------------------------------------ discord
 
 const VERBS = { 0: 'Jogando', 2: 'Ouvindo', 3: 'Assistindo', 5: 'Competindo em' };
@@ -968,7 +1007,14 @@ function dcFill(c) {
 }
 
 async function dcLoad() {
-  try { const s = await dcFetch(); dcFill(s.cfg); dcApplyStatus(s); } catch (e) {}
+  try {
+    const s = await dcFetch();
+    dcFill(s.cfg);      // servidor manda quando responde
+    savePrefs();        // e a cópia local passa a espelhar o que ele tem
+    dcApplyStatus(s);
+  } catch (e) {
+    // sem resposta: fica o que o applyPrefs já preencheu
+  }
 }
 
 async function dcPoll() {
@@ -992,6 +1038,7 @@ async function dcSave() {
     const j = await r.json();
     if (j && j.cfg) {
       dcFill(j.cfg);          // mostra o que o servidor aceitou, não o que foi digitado
+      savePrefs();
       log('config do Discord salva');
       if ($('dcAppId').value === '' ) log('App ID vazio ou inválido — status desligado');
     }
@@ -1141,13 +1188,18 @@ $('preset').onchange = (e) => {
   if (e.target.value === 'custom') return;
   applyPreset(e.target.value);
   applyQuality();
+  savePrefs();
 };
 ['res', 'fps', 'kbps'].forEach((id) => {
-  $(id).onchange = () => { $('preset').value = 'custom'; applyQuality(); };
+  $(id).onchange = () => { $('preset').value = 'custom'; applyQuality(); savePrefs(); };
 });
-$('hint').onchange = applyQuality;
-$('showPreview').onchange = renderStage;
-$('discordThumb').onchange = () => { dcPreview(); if (stream && $('discordThumb').checked) sendThumb(); };
+$('hint').onchange = () => { applyQuality(); savePrefs(); };
+$('showPreview').onchange = () => { renderStage(); savePrefs(); };
+$('autoFallback').onchange = savePrefs;
+['dcAppId', 'dcInvite', 'dcText', 'dcType'].forEach((id) => {
+  $(id).addEventListener('change', savePrefs);
+});
+$('discordThumb').onchange = () => { dcPreview(); savePrefs(); if (stream && $('discordThumb').checked) sendThumb(); };
 $('chatForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const text = $('chatInput').value.trim();
@@ -1179,7 +1231,7 @@ document.querySelectorAll('.panel').forEach((p) => {
 $('dcType').onchange = dcPreview;
 dcLoad();
 dcTimer = setInterval(dcPoll, 8000);
-$('mode').onchange = (e) => switchMode(e.target.value);
+$('mode').onchange = (e) => { switchMode(e.target.value); savePrefs(); };
 $('copyBtn').onclick = async () => {
   const v = $('shareUrl').value;
   try { await navigator.clipboard.writeText(v); } catch (e) { $('shareUrl').select(); document.execCommand('copy'); }
@@ -1194,6 +1246,7 @@ if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
   log('este navegador não expõe captura de tela — use Chrome, Edge ou Firefox no desktop');
 }
 
+applyPrefs();
 connect();
 </script>
 </body>

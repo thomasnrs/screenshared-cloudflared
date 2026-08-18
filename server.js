@@ -21,7 +21,8 @@ const PORT = parseInt(env('PORT', '8787'), 10);
 const KEY = env('KEY') || crypto.randomBytes(5).toString('hex');
 const PIN = env('PIN');
 const PUBDIR = path.join(__dirname, 'public');
-const CFG_FILE = path.join(__dirname, 'screenshared.config.json');
+// caminho trocavel: teste nenhum deve encostar na config de verdade de ninguem
+const CFG_FILE = env('CONFIG') || path.join(__dirname, 'screenshared.config.json');
 
 const MAX_THUMB = 512 * 1024;
 const THUMB_PATH = '/t/' + crypto.randomBytes(6).toString('hex');   // nao adivinhavel

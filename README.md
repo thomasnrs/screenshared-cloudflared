@@ -97,6 +97,9 @@ taxa antes de mexer na resolução — costuma resolver com menos perda visível
 Tem também um seletor entre **nitidez** (código, texto, planilha — segura a
 resolução e derruba o fps quando aperta) e **fluidez** (vídeo, jogo — faz o contrário).
 
+O painel lembra tudo isso entre execuções — resolução, fps, taxa, nitidez/fluidez,
+entrega, prévia e a config do Discord ficam como você deixou.
+
 ### Prévia
 
 A prévia da sua própria tela vem **desligada**, de propósito: fazer o navegador
@@ -123,6 +126,8 @@ Com o chat aberto ou digitando, nada some.
 | **Voltar** | botão *Zoom normal* ou a tecla `0`. |
 | **Som** | botão de volume na barra de baixo. Quem entra já entra com som. |
 | **Atalhos** | `f` tela cheia, `m` mudo, `c` chat, `0` zoom normal. Duplo clique também alterna tela cheia. |
+
+Volume, mudo e chat aberto ficam lembrados para a próxima vez que a pessoa entrar.
 
 ### Chat
 
@@ -174,6 +179,7 @@ Variáveis de ambiente:
 | `SCREENSHARED_KEY` | fixa a chave do painel em vez de sortear |
 | `SCREENSHARED_PIN` | mesmo que `--pin` |
 | `SCREENSHARED_MAX_VIEWERS` | teto de espectadores (padrão 50) |
+| `SCREENSHARED_CONFIG` | caminho de outro arquivo de config |
 | `SCREENSHARED_DISCORD_APP_ID` | mesmo que `--discord-app-id` |
 | `SCREENSHARED_DISCORD_INVITE` | mesmo que `--discord-invite` |
 | `SCREENSHARED_DISCORD_PIPE` | caminho do socket do Discord, se estiver em sandbox (Flatpak/Snap) |
@@ -220,6 +226,10 @@ com uma miniatura borrada da sua tela do lado.
 Fica gravado em `screenshared.config.json` e vale nas próximas execuções. O painel
 mostra uma prévia de como o status vai ficar, já com o nome real do seu app, e
 uma bolinha dizendo se conectou.
+
+O painel também guarda uma cópia no navegador, então os campos abrem preenchidos
+mesmo se o servidor estiver reiniciando ou a aba estiver com a chave velha. Quando
+o servidor responde, o que vale é o que ele tem.
 
 Também dá por linha de comando, se preferir:
 
