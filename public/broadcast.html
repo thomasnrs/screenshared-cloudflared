@@ -192,6 +192,18 @@
       </div>
     </div>
 
+    <div class="block" id="discordBlock" style="display:none">
+      <label class="head">Discord</label>
+      <label class="check">
+        <input type="checkbox" id="discordThumb" checked>
+        <span>Mandar uma miniatura borrada da tela para o meu status.</span>
+      </label>
+      <div class="note" id="discordNote">
+        Seu status mostra que você está compartilhando, há quanto tempo, quantas
+        pessoas estão vendo e um botão que abre o link.
+      </div>
+    </div>
+
     <div class="block">
       <label class="head">Quem está assistindo</label>
       <div id="people" class="people"></div>
@@ -503,6 +515,7 @@ async function start() {
   log('capturando' + (stream.getAudioTracks().length ? ' com áudio' : ' sem áudio'));
 
   wsSend({ t: 'live', live: true });
+  startThumbs();
   if (mode === 'webrtc') knownViewers.forEach(offerTo);
   else startRecorder();
 }
@@ -512,6 +525,7 @@ function stop() {
   stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
   stream = null;
   stopRecorder();
+  stopThumbs();
   peers.forEach((pc, id) => closePeer(id));
   renderStage();
   $('startBtn').disabled = false;
@@ -653,6 +667,60 @@ function kickRecorder() {
   restartRecorder();
 }
 
+// ------------------------------------------------------------------ miniatura
+
+let thumbTimer = null;
+let grabber = null;
+
+// pega o quadro direto da track, sem precisar da prévia ligada — desenhar a
+// tela de volta na tela era exatamente o que estava custando CPU
+async function sendThumb() {
+  if (!stream || !$('discordThumb').checked) return;
+  const track = stream.getVideoTracks()[0];
+  if (!track || track.readyState !== 'live') return;
+  if (!window.ImageCapture) return;
+
+  let frame;
+  try {
+    if (!grabber || grabber.track !== track) grabber = new ImageCapture(track);
+    frame = await grabber.grabFrame();
+  } catch (e) { return; }
+
+  const W = 320;
+  const H = Math.max(1, Math.round((W * frame.height) / frame.width));
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+
+  // desenha maior que o quadro para o blur não deixar borda transparente
+  const pad = 14;
+  ctx.filter = 'blur(7px)';
+  ctx.drawImage(frame, -pad, -pad, W + pad * 2, H + pad * 2);
+  if (frame.close) frame.close();
+
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.5));
+  if (!blob) return;
+  try {
+    await fetch('/thumb?k=' + encodeURIComponent(KEY), { method: 'POST', body: blob });
+  } catch (e) {}
+}
+
+function startThumbs() {
+  stopThumbs();
+  if (!window.ImageCapture) {
+    $('discordNote').textContent = 'Este navegador não expõe ImageCapture, então vai sem miniatura. O resto do status funciona.';
+    return;
+  }
+  setTimeout(sendThumb, 1500);                 // uma logo, para o status não nascer vazio
+  thumbTimer = setInterval(sendThumb, 30000);  // depois de vez em quando: o Discord cacheia
+}
+
+function stopThumbs() {
+  clearInterval(thumbTimer);
+  thumbTimer = null;
+  grabber = null;
+}
+
 // ------------------------------------------------------------------ modo
 
 function switchMode(next) {
@@ -707,6 +775,7 @@ async function refreshConfig() {
   try {
     const cfg = await (await fetch('/config.json', { cache: 'no-store' })).json();
     if (cfg.iceServers && cfg.iceServers.length) iceServers = cfg.iceServers;
+    if (cfg.discord) $('discordBlock').style.display = '';
     if (cfg.publicUrl) {
       $('shareUrl').value = cfg.publicUrl;
       $('linkNote').textContent = 'Quem abrir esse link vê sua tela. Não publique em lugar aberto.';
@@ -740,6 +809,7 @@ $('preset').onchange = (e) => {
 });
 $('hint').onchange = applyQuality;
 $('showPreview').onchange = renderStage;
+$('discordThumb').onchange = () => { if (stream && $('discordThumb').checked) sendThumb(); };
 $('mode').onchange = (e) => switchMode(e.target.value);
 $('copyBtn').onclick = async () => {
   const v = $('shareUrl').value;

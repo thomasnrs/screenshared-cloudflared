@@ -106,6 +106,8 @@ resolução) continuam dizendo se está tudo certo.
 ./start.sh --pin 4821       # exige ?p=4821 no link para assistir
 ./start.sh --no-tunnel      # só rede local, sem Cloudflare
 ./start.sh --no-open        # não abre o navegador sozinho
+./start.sh --discord-app-id 1234567890123456789    # status no Discord
+./start.sh --discord-invite https://discord.gg/xxx # 2o botao do status
 ```
 
 Variáveis de ambiente:
@@ -116,6 +118,10 @@ Variáveis de ambiente:
 | `TELAR_KEY` | fixa a chave do painel em vez de sortear |
 | `TELAR_PIN` | mesmo que `--pin` |
 | `TELAR_MAX_VIEWERS` | teto de espectadores (padrão 50) |
+| `TELAR_DISCORD_APP_ID` | mesmo que `--discord-app-id` |
+| `TELAR_DISCORD_INVITE` | mesmo que `--discord-invite` |
+| `TELAR_DISCORD_PIPE` | caminho do socket do Discord, se estiver em sandbox (Flatpak/Snap) |
+| `TELAR_DISCORD_TYPE` | tipo da atividade: 0 jogando, 3 assistindo |
 | `TELAR_CF_PROTOCOL` | `http2` ou `quic`, força o transporte do cloudflared |
 | `TELAR_TURN_URL` | servidor TURN, ex. `turn:host:3478` |
 | `TELAR_TURN_USER` / `TELAR_TURN_PASS` | credenciais do TURN |
@@ -129,6 +135,69 @@ compatível (que sempre funciona, porque é HTTPS pelo túnel) ou aponta um TURN
 ```sh
 TELAR_TURN_URL=turn:seu.host:3478 TELAR_TURN_USER=user TELAR_TURN_PASS=senha ./start.sh
 ```
+
+---
+
+## Rich Presence no Discord
+
+Fala direto com o cliente de desktop pelo IPC local (`discord-ipc-0`) — não passa
+pela rede, não precisa de bot nem de token. Enquanto você transmite, seu status fica:
+
+```
+  Jogando telar
+  Compartilhando a tela
+  3 pessoas assistindo          12:34 decorridos
+  [ Assistir a tela ]  [ Entrar no servidor ]
+```
+
+com uma miniatura borrada da sua tela do lado.
+
+### Ligar (1 minuto, uma vez só)
+
+1. Abra <https://discord.com/developers/applications> → **New Application**.
+2. O **nome que você der é a primeira linha do status** — "telar", "Compartilhando
+   tela", o que quiser ler ali.
+3. Copie o **Application ID** e rode:
+
+```sh
+./start.sh --discord-app-id 1234567890123456789
+```
+
+Para o segundo botão levar ao seu servidor, junte `--discord-invite https://discord.gg/xxxx`.
+
+Sem `--discord-app-id` nada disso liga, e o resto do programa funciona igual.
+
+### O que dá e o que não dá
+
+| | |
+|---|---|
+| "está compartilhando tela" | **Sim** — na linha `details`. A linha de cima é o nome do app, então escolha bem no passo 2. |
+| Tempo telando | **Sim** — cronômetro de verdade, contado pelo próprio Discord. |
+| Botão que abre a transmissão | **Sim** — é o que resolve seu problema: quem está na call clica e cai direto na sua tela. |
+| Mini-preview borrado | **Sim, com ressalva.** Vai uma miniatura de 320px desfocada a cada 30s. O Discord serve imagem por proxy próprio e cacheia com força, então ela atualiza devagar e, dependendo da versão do cliente, pode não aparecer. Se não aparecer, o resto do status continua funcionando. |
+| Qual call/servidor você está | **Não dá.** Ler o canal de voz atual exige os escopos `rpc` / `rpc.voice.read`, que o Discord libera só por lista de permissão, caso a caso — app pessoal não consegue. Por isso o convite do servidor é você que configura, no `--discord-invite`. |
+
+Detalhes que economizam confusão:
+
+- **Você não vê os seus próprios botões.** O Discord esconde de quem é dono do
+  status. Peça para alguém olhar seu perfil, ou confira por outra conta.
+- O status some sozinho quando você para de transmitir ou fecha com `Ctrl+C`.
+- Discord fechado não é problema: o programa segue tentando em segundo plano e
+  liga o status quando ele abrir.
+- As atualizações saem no máximo a cada 4,5s, porque o RPC do Discord aceita
+  cerca de 5 por 20 segundos. Entrou muita gente de uma vez, o status mostra o
+  número final, não cada passo.
+
+### Sobre a miniatura
+
+Ela é **borrada, pequena e serve num caminho com token aleatório** (`/t/<token>/…`),
+mas mora no mesmo túnel público — e o Discord copia a imagem para o CDN dele para
+mostrar aos outros. Se estiver com algo sensível na tela, desmarque *Mandar uma
+miniatura borrada* no painel; o resto do status continua.
+
+Ela é capturada direto da track com `ImageCapture`, **sem** ligar a prévia — não
+custa o lag que a prévia custava. Navegador sem `ImageCapture` (Firefox) fica sem
+miniatura e o painel avisa.
 
 ---
 
@@ -238,6 +307,7 @@ que o Safari não reproduz via MSE.
 | `server.js` | HTTP estático + hub WebSocket (implementado na mão, sem `ws`) |
 | `public/broadcast.html` | painel: captura, presets, WebRTC por espectador, gravador do relay |
 | `public/watch.html` | espectador: apelido na entrada, WebRTC ou MediaSource, cola na ponta ao vivo |
+| `discord.js` | Rich Presence pelo IPC local do cliente, sem dependência |
 | `tunnel.log` | saída crua do cloudflared, para quando o túnel der problema |
 
 No modo relay o servidor guarda o primeiro chunk do `MediaRecorder` (o cabeçalho

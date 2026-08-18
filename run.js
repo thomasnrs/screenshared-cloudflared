@@ -31,6 +31,8 @@ const WANT_PORT = parseInt(opt('port', process.env.TELAR_PORT || '8787'), 10);
 const NO_TUNNEL = flag('no-tunnel');
 const NO_OPEN = flag('no-open');
 const PIN = opt('pin', process.env.TELAR_PIN || '');
+const DISCORD_ID = opt('discord-app-id', process.env.TELAR_DISCORD_APP_ID || '');
+const DISCORD_INVITE = opt('discord-invite', process.env.TELAR_DISCORD_INVITE || '');
 const KEY = process.env.TELAR_KEY || crypto.randomBytes(5).toString('hex');
 
 // ---------------------------------------------------------------- enfeites
@@ -212,6 +214,8 @@ function startServer(port) {
         TELAR_PORT: String(port),
         TELAR_KEY: KEY,
         TELAR_PIN: PIN,
+        TELAR_DISCORD_APP_ID: DISCORD_ID,
+        TELAR_DISCORD_INVITE: DISCORD_INVITE,
       }),
       stdio: ['ignore', 'pipe', 'inherit'],
     });

@@ -9,11 +9,19 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { Presence } = require('./discord.js');
 
 const PORT = parseInt(process.env.TELAR_PORT || '8787', 10);
 const KEY = process.env.TELAR_KEY || crypto.randomBytes(5).toString('hex');
 const PIN = process.env.TELAR_PIN || '';
 const PUBDIR = path.join(__dirname, 'public');
+
+const DISCORD_ID = process.env.TELAR_DISCORD_APP_ID || '';
+const DISCORD_INVITE = process.env.TELAR_DISCORD_INVITE || '';
+const DISCORD_TYPE = process.env.TELAR_DISCORD_TYPE;      // 0 jogando, 3 assistindo...
+
+const MAX_THUMB = 512 * 1024;
+const THUMB_PATH = '/t/' + crypto.randomBytes(6).toString('hex');   // nao adivinhavel
 
 const MAX_FRAME = 24 * 1024 * 1024;   // teto de um frame ws
 const SLOW_BYTES = 4 * 1024 * 1024;   // acima disso o espectador e' lento: descarta video
@@ -269,6 +277,9 @@ let relayInit = null;       // primeiro chunk do MediaRecorder (cabecalho webm)
 let awaitingInit = false;
 let title = '';
 let publicUrl = '';
+let liveSince = 0;
+let thumb = null;          // miniatura borrada, JPEG cru
+let thumbVersion = 0;
 
 const viewers = new Map();
 let nextId = 1;
@@ -291,6 +302,46 @@ function announceCount() {
   if (broadcaster) broadcaster.json({ t: 'count', n: n });
   toViewers({ t: 'count', n: n, names: Array.from(viewers.values()).map((v) => v.nick) });
   pushViewers();
+  updatePresence();
+}
+
+// ---------------------------------------------------------------- discord
+
+const presence = DISCORD_ID ? new Presence(DISCORD_ID, (m) => log('discord: ' + m)) : null;
+if (presence) presence.start();
+
+function plural(n) {
+  if (n === 0) return 'ninguém assistindo ainda';
+  if (n === 1) return '1 pessoa assistindo';
+  return n + ' pessoas assistindo';
+}
+
+function updatePresence() {
+  if (!presence) return;
+  if (!live) return presence.clear();
+
+  const act = {
+    details: title || 'Compartilhando a tela',
+    state: plural(viewers.size),
+    timestamps: { start: liveSince || Date.now() },
+    instance: false,
+  };
+  if (DISCORD_TYPE !== undefined && DISCORD_TYPE !== '') act.type = parseInt(DISCORD_TYPE, 10);
+
+  const buttons = [];
+  if (publicUrl) buttons.push({ label: 'Assistir a tela', url: publicUrl + (PIN ? '?p=' + PIN : '') });
+  if (DISCORD_INVITE) buttons.push({ label: 'Entrar no servidor', url: DISCORD_INVITE });
+  if (buttons.length) act.buttons = buttons;
+
+  // so' manda imagem quando existe: chave de asset inexistente faz o RPC recusar
+  if (thumb && publicUrl) {
+    act.assets = {
+      large_image: publicUrl + THUMB_PATH + '/' + thumbVersion + '.jpg',
+      large_text: 'telar',
+    };
+  }
+
+  presence.set(act);
 }
 
 function disconnect(v, reason) {
@@ -300,6 +351,8 @@ function disconnect(v, reason) {
 
 function resetStream() {
   live = false;
+  liveSince = 0;
+  thumb = null;
   relayInit = null;
   relayMime = '';
   awaitingInit = false;
@@ -361,15 +414,50 @@ const server = http.createServer((req, res) => {
 
   if (p === '/config.json') {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    return res.end(JSON.stringify({ iceServers: iceServers(), pin: !!PIN, title: title, publicUrl: publicUrl }));
+    return res.end(JSON.stringify({ iceServers: iceServers(), pin: !!PIN, title: title, publicUrl: publicUrl, discord: !!DISCORD_ID }));
   }
 
   // o launcher avisa aqui qual URL o cloudflared entregou (so' aceita com a chave)
   if (p === '/tunnel') {
     if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
     publicUrl = url.searchParams.get('u') || '';
+    updatePresence();
     res.writeHead(200, { 'content-type': 'text/plain' });
     return res.end('ok');
+  }
+
+  // o painel manda a miniatura ja' borrada e reduzida; aqui so' guardamos
+  if (p === '/thumb') {
+    if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
+    if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
+    const chunks = [];
+    let size = 0;
+    let killed = false;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_THUMB) { killed = true; req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (killed || !size) { res.writeHead(400); return res.end(); }
+      thumb = Buffer.concat(chunks);
+      thumbVersion++;
+      updatePresence();
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('ok');
+    });
+    return;
+  }
+
+  // caminho com token aleatorio: a miniatura nao fica adivinhavel a partir do link
+  if (p.startsWith(THUMB_PATH + '/')) {
+    if (!thumb) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, {
+      'content-type': 'image/jpeg',
+      'content-length': thumb.length,
+      'cache-control': 'public, max-age=120',
+    });
+    return res.end(thumb);
   }
 
   if (p === '/') return serveFile(res, path.join(PUBDIR, 'watch.html'));
@@ -468,13 +556,16 @@ function attachBroadcaster(conn) {
         break;
       case 'live':
         live = !!msg.live;
-        if (!live) { relayInit = null; awaitingInit = false; }
+        if (live) { if (!liveSince) liveSince = Date.now(); }
+        else { relayInit = null; awaitingInit = false; liveSince = 0; thumb = null; }
         toViewers({ t: 'live', live: live, mode: mode });
+        updatePresence();
         log(live ? 'transmissao iniciada' : 'transmissao encerrada');
         break;
       case 'title':
         title = String(msg.title || '').slice(0, 80);
         toViewers({ t: 'title', title: title });
+        updatePresence();
         break;
       case 'relay-init':
         relayMime = String(msg.mime || '');
@@ -517,6 +608,7 @@ function attachBroadcaster(conn) {
       broadcaster = null;
       resetStream();
       toViewers({ t: 'offline' });
+      updatePresence();
       log('painel do transmissor desconectado');
     }
   };
@@ -562,6 +654,10 @@ server.listen(PORT, () => {
   log('escutando em http://localhost:' + PORT);
   process.stdout.write('TELAR_READY ' + JSON.stringify({ port: PORT, key: KEY, pin: PIN }) + '\n');
 });
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => { if (presence) presence.stop(); setTimeout(() => process.exit(0), 200); });
+}
 
 server.on('error', (e) => {
   process.stderr.write('[telar] erro no servidor: ' + e.message + '\n');
