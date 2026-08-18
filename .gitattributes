@@ -1,0 +1,4 @@
+# scripts precisam da quebra de linha certa em cada plataforma
+* text=auto eol=lf
+*.bat text eol=crlf
+*.sh text eol=lf
