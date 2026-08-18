@@ -56,6 +56,9 @@ function banner(publicUrl, port) {
     say('  ' + C.b + 'MANDE ESTE LINK PARA QUEM VAI ASSISTIR:' + C.r);
     say('');
     say('      ' + C.gr + C.b + publicUrl + (PIN ? '?p=' + PIN : '') + C.r);
+    say('');
+    say('  ' + C.dim + 'Endereço novo leva alguns segundos para responder no mundo todo.' + C.r);
+    say('  ' + C.dim + 'Se der erro 1033, espere a linha de confirmação aqui embaixo.' + C.r);
   } else {
     say('  ' + C.b + 'LINK NA REDE LOCAL (sem túnel):' + C.r);
     say('');
@@ -234,6 +237,9 @@ function startServer(port) {
 }
 
 const CF_URL_RE = /https:\/\/[a-z0-9][a-z0-9-]*\.trycloudflare\.com/i;
+const TUNLOG = path.join(__dirname, 'tunnel.log');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function startTunnel(bin, port, protocol) {
   return new Promise((resolve) => {
@@ -243,23 +249,75 @@ function startTunnel(bin, port, protocol) {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     children.push(child);
 
-    let done = false;
-    const finish = (url) => { if (!done) { done = true; resolve({ url: url, child: child }); } };
+    let log = null;
+    try {
+      log = fs.createWriteStream(TUNLOG, { flags: 'a' });
+      log.write('\n=== ' + new Date().toISOString() + '  protocolo=' + (protocol || 'auto') + ' ===\n');
+    } catch (e) {}
 
+    let done = false;
+    let url = null;
+    let registered = false;
+    const finish = () => {
+      if (!done) { done = true; resolve({ url: url, registered: registered, child: child }); }
+    };
+
+    // "Registered tunnel connection" e' o sinal de que o cloudflared fechou com a
+    // borda. O que sobra depois disso e' propagacao do hostname, que nao da' pra
+    // apressar e nao significa que o tunel esteja ruim.
     const scan = (d) => {
       const s = d.toString();
-      const m = s.match(CF_URL_RE);
-      if (m) finish(m[0]);
-      if (/failed to (?:sufficiently )?increase|Unauthorized|error/i.test(s) && !m) {
-        // ruído normal do cloudflared; só interessa se nunca vier URL
-      }
+      if (log) log.write(s);
+      if (!url) { const m = s.match(CF_URL_RE); if (m) url = m[0]; }
+      if (!registered && /Registered tunnel connection/i.test(s)) registered = true;
+      if (url && registered) finish();
     };
     child.stdout.on('data', scan);
     child.stderr.on('data', scan);
 
-    child.on('exit', () => finish(null));
-    setTimeout(() => finish(null), protocol ? 40000 : 25000);
+    child.on('exit', (code) => {
+      if (log) log.write('\n[cloudflared saiu, codigo ' + code + ']\n');
+      finish();
+    });
+    setTimeout(finish, 30000);
   });
+}
+
+// o cloudflared anuncia a URL antes das conexoes com a borda ficarem de pe'.
+// so' vale mostrar o link depois que ele responder de verdade, senao a pessoa
+// recebe um link morto (erro 1033 da Cloudflare).
+function probe(url) {
+  return new Promise((resolve) => {
+    const req = https.get(url + '/health', { headers: { 'user-agent': 'telar' } }, (res) => {
+      let body = '';
+      res.on('data', (c) => { if (body.length < 4096) body += c; });
+      res.on('end', () => {
+        let good = false;
+        try { good = res.statusCode === 200 && JSON.parse(body).ok === true; } catch (e) {}
+        resolve(good);
+      });
+    });
+    req.setTimeout(8000, () => { req.destroy(); resolve(false); });
+    req.on('error', () => resolve(false));
+  });
+}
+
+async function waitReachable(url, seconds) {
+  const deadline = Date.now() + seconds * 1000;
+  while (Date.now() < deadline) {
+    if (await probe(url)) return true;
+    await sleep(3000);
+  }
+  return false;
+}
+
+// nao segura o link refem do probe: mostra logo e avisa quando confirmar
+async function confirmWhenLive(url) {
+  if (await waitReachable(url, 25)) return say('  ' + C.gr + '✓ link confirmado — pode mandar' + C.r + '\n');
+  say('  ' + C.ye + '· o link ainda está propagando na Cloudflare; aviso aqui quando responder' + C.r);
+  if (await waitReachable(url, 240)) return say('  ' + C.gr + '✓ link confirmado — pode mandar agora' + C.r + '\n');
+  fail('o link não respondeu em ~4 min. O túnel está de pé (veja tunnel.log);');
+  fail('se continuar dando erro 1033, use Ctrl+C e rode de novo para pegar outro endereço.');
 }
 
 function tellServer(port, url) {
@@ -279,6 +337,39 @@ function openBrowser(url) {
     else if (process.platform === 'darwin') spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
     else spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
   } catch (e) {}
+}
+
+async function openTunnel(bin, port) {
+  // sem UDP a borda da Cloudflare nao fecha o QUIC; http2 vai por TCP/443 e passa
+  const attempts = process.env.TELAR_CF_PROTOCOL ? [process.env.TELAR_CF_PROTOCOL] : [null, 'http2'];
+
+  for (let i = 0; i < attempts.length; i++) {
+    const proto = attempts[i];
+    step('abrindo túnel do Cloudflare' + (proto ? ' (' + proto + ')' : '') + '...');
+    const r = await startTunnel(bin, port, proto);
+
+    if (r.url && r.registered) { step('túnel registrado na borda da Cloudflare'); return r; }
+
+    try { r.child.kill(); } catch (e) {}
+    if (i < attempts.length - 1) {
+      warn(r.url ? 'o túnel não registrou conexão — tentando por HTTP2...'
+                 : 'o túnel não abriu — tentando por HTTP2...');
+    }
+  }
+  return null;
+}
+
+function superviseTunnel(bin, port, r) {
+  r.child.on('exit', async () => {
+    if (shuttingDown) return;
+    warn('o túnel caiu — reabrindo (atenção: o link muda)');
+    const next = await openTunnel(bin, port);
+    if (!next) return fail('não consegui reabrir o túnel; veja tunnel.log');
+    await tellServer(port, next.url);
+    banner(next.url, port);
+    confirmWhenLive(next.url);
+    superviseTunnel(bin, port, next);
+  });
 }
 
 // ---------------------------------------------------------------- main
@@ -301,16 +392,9 @@ function openBrowser(url) {
     catch (e) { warn('não deu pra preparar o cloudflared: ' + e.message); }
 
     if (bin) {
-      step('abrindo túnel do Cloudflare...');
-      let r = await startTunnel(bin, port, process.env.TELAR_CF_PROTOCOL || null);
-      if (!r.url) {
-        // rede corporativa costuma bloquear UDP/QUIC; http2 passa por 443
-        warn('túnel não respondeu — tentando de novo por HTTP2...');
-        try { r.child.kill(); } catch (e) {}
-        r = await startTunnel(bin, port, 'http2');
-      }
-      if (r.url) { publicUrl = r.url; step('túnel pronto'); }
-      else warn('o túnel não subiu; seguindo só com a rede local');
+      const r = await openTunnel(bin, port);
+      if (r) { publicUrl = r.url; superviseTunnel(bin, port, r); }
+      else warn('o túnel não subiu; seguindo só com a rede local (detalhes em tunnel.log)');
     }
   }
 
@@ -318,6 +402,7 @@ function openBrowser(url) {
 
   banner(publicUrl, port);
   openBrowser('http://localhost:' + port + '/b?k=' + KEY);
+  if (publicUrl) confirmWhenLive(publicUrl);
 
   process.stdin.resume();
 })().catch((e) => {

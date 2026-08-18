@@ -17,6 +17,110 @@ const PUBDIR = path.join(__dirname, 'public');
 
 const MAX_FRAME = 24 * 1024 * 1024;   // teto de um frame ws
 const SLOW_BYTES = 4 * 1024 * 1024;   // acima disso o espectador e' lento: descarta video
+const MAX_VIEWERS = parseInt(process.env.TELAR_MAX_VIEWERS || '50', 10);
+
+// ---------------------------------------------------------------- seguranca
+
+const LIM = {
+  wsPerMin: 30,                  // aberturas de websocket por IP por minuto
+  concurrent: 6,                 // abas simultaneas por IP
+  httpPerMin: 300,               // requisicoes http por IP por minuto
+  keyFails: 8,                   // chutes na chave/pin antes de bloquear o IP
+  blockMs: 10 * 60 * 1000,
+};
+
+const banned = new Set();        // IPs banidos pelo transmissor
+const buckets = new Map();       // IP -> contadores
+
+function normIp(ip) {
+  if (!ip) return '?';
+  ip = String(ip).trim();
+  if (ip.startsWith('::ffff:')) ip = ip.slice(7);   // ipv4 mapeado em ipv6
+  return ip;
+}
+
+function isLocal(ip) {
+  ip = normIp(ip);
+  return ip === '127.0.0.1' || ip === '::1' || ip === '?';
+}
+
+// atras do cloudflared toda conexao chega de 127.0.0.1; o IP de verdade vem no
+// cabecalho. So' confiamos nele quando o salto imediato e' local, senao qualquer
+// um na LAN forjaria o proprio IP e escaparia de ban e rate-limit.
+function clientIp(req) {
+  const hop = normIp(req.socket && req.socket.remoteAddress);
+  if (isLocal(hop)) {
+    const cf = req.headers['cf-connecting-ip'];
+    if (cf) return normIp(cf);
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) return normIp(String(xff).split(',')[0]);
+  }
+  return hop;
+}
+
+function bucket(ip) {
+  let b = buckets.get(ip);
+  if (!b) { b = { ws: [], http: [], live: 0, fails: 0, until: 0 }; buckets.set(ip, b); }
+  return b;
+}
+
+function blocked(ip) {
+  if (banned.has(ip)) return true;
+  const b = buckets.get(ip);
+  return !!(b && b.until > Date.now());
+}
+
+function allow(list, windowMs, limit) {
+  const now = Date.now();
+  while (list.length && now - list[0] > windowMs) list.shift();
+  if (list.length >= limit) return false;
+  list.push(now);
+  return true;
+}
+
+function noteFail(ip) {
+  const b = bucket(ip);
+  if (++b.fails >= LIM.keyFails) {
+    b.until = Date.now() + LIM.blockMs;
+    b.fails = 0;
+    log('bloqueando ' + ip + ' por tentativas de chave');
+  }
+}
+
+// evita vazar o tamanho do prefixo correto pelo tempo de comparacao
+function safeEqual(a, b) {
+  a = String(a == null ? '' : a);
+  b = String(b == null ? '' : b);
+  const ba = Buffer.from(a), bb = Buffer.from(b);
+  if (ba.length !== bb.length) { crypto.timingSafeEqual(ba, ba); return false; }
+  return crypto.timingSafeEqual(ba, bb);
+}
+
+// montados com new RegExp para nao depender de caracteres de controle literais no fonte.
+// invisiveis somem (servem pra forjar nicks "iguais"); controle vira espaco (senao
+// "linha1\nlinha2" cola as duas palavras). ‪-‮ inverte a exibicao do texto.
+const NICK_HIDE = new RegExp('[\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff]', 'g');
+const NICK_CTRL = new RegExp('[\\u0000-\\u001f\\u007f-\\u009f]', 'g');
+
+function cleanNick(s) {
+  return String(s == null ? '' : s)
+    .replace(NICK_HIDE, '')
+    .replace(NICK_CTRL, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 24);
+}
+
+// buckets ociosos nao ficam guardados pra sempre
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, b] of buckets) {
+    if (b.live > 0 || b.until > now) continue;
+    const lastWs = b.ws.length ? b.ws[b.ws.length - 1] : 0;
+    const lastHttp = b.http.length ? b.http[b.http.length - 1] : 0;
+    if (now - Math.max(lastWs, lastHttp) > 15 * 60 * 1000) buckets.delete(ip);
+  }
+}, 5 * 60 * 1000).unref();
 
 // ---------------------------------------------------------------- websocket
 
@@ -171,10 +275,27 @@ let nextId = 1;
 
 function toViewers(obj) { for (const v of viewers.values()) v.json(obj); }
 
+function viewerList() {
+  return Array.from(viewers.values()).map((v) => ({
+    id: v.id, nick: v.nick, ip: v.ip, since: v.since, dropped: v.dropped,
+  }));
+}
+
+// o IP so' vai para o transmissor; espectador nenhum recebe IP de ninguem
+function pushViewers() {
+  if (broadcaster) broadcaster.json({ t: 'viewers', list: viewerList(), banned: Array.from(banned) });
+}
+
 function announceCount() {
   const n = viewers.size;
-  if (broadcaster) broadcaster.json({ t: 'count', n });
-  toViewers({ t: 'count', n });
+  if (broadcaster) broadcaster.json({ t: 'count', n: n });
+  toViewers({ t: 'count', n: n, names: Array.from(viewers.values()).map((v) => v.nick) });
+  pushViewers();
+}
+
+function disconnect(v, reason) {
+  v.json({ t: 'kicked', reason: reason });
+  setTimeout(() => v.close(), 60);   // deixa a mensagem sair antes de fechar
 }
 
 function resetStream() {
@@ -222,6 +343,16 @@ function iceServers() {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const p = url.pathname;
+  const ip = clientIp(req);
+
+  if (blocked(ip)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+    return res.end('Acesso bloqueado pelo dono da transmissao.');
+  }
+  if (!allow(bucket(ip).http, 60000, LIM.httpPerMin)) {
+    res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '30' });
+    return res.end('Requisicoes demais. Espere um pouco.');
+  }
 
   if (p === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
@@ -235,7 +366,7 @@ const server = http.createServer((req, res) => {
 
   // o launcher avisa aqui qual URL o cloudflared entregou (so' aceita com a chave)
   if (p === '/tunnel') {
-    if (url.searchParams.get('k') !== KEY) { res.writeHead(403); return res.end(); }
+    if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
     publicUrl = url.searchParams.get('u') || '';
     res.writeHead(200, { 'content-type': 'text/plain' });
     return res.end('ok');
@@ -244,7 +375,8 @@ const server = http.createServer((req, res) => {
   if (p === '/') return serveFile(res, path.join(PUBDIR, 'watch.html'));
 
   if (p === '/b' || p === '/b/') {
-    if (url.searchParams.get('k') !== KEY) {
+    if (!safeEqual(url.searchParams.get('k'), KEY)) {
+      noteFail(ip);
       res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' });
       return res.end('<meta charset="utf-8"><body style="font:16px system-ui;background:#111;color:#eee;padding:3rem">'
         + '<h2>Chave invalida</h2><p>Abra o painel pelo link que apareceu no terminal.</p>');
@@ -266,9 +398,20 @@ server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key'];
   if (url.pathname !== '/ws' || !key) return socket.destroy();
 
+  const ip = clientIp(req);
+  const b = bucket(ip);
+  if (blocked(ip)) return socket.destroy();
+  if (!allow(b.ws, 60000, LIM.wsPerMin)) return socket.destroy();
+
   const role = url.searchParams.get('role') === 'broadcast' ? 'broadcast' : 'view';
-  if (role === 'broadcast' && url.searchParams.get('key') !== KEY) return socket.destroy();
-  if (role === 'view' && PIN && url.searchParams.get('pin') !== PIN) return socket.destroy();
+
+  if (role === 'broadcast') {
+    if (!safeEqual(url.searchParams.get('key'), KEY)) { noteFail(ip); return socket.destroy(); }
+  } else {
+    if (PIN && !safeEqual(url.searchParams.get('pin'), PIN)) { noteFail(ip); return socket.destroy(); }
+    if (b.live >= LIM.concurrent) return socket.destroy();
+    if (viewers.size >= MAX_VIEWERS) return socket.destroy();
+  }
 
   const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
   socket.write(
@@ -281,6 +424,13 @@ server.on('upgrade', (req, socket) => {
 
   const conn = new Conn(socket);
   conn.role = role;
+  conn.ip = ip;
+  conn.since = Date.now();
+  conn.nick = cleanNick(url.searchParams.get('nick'));
+
+  b.live++;
+  socket.on('close', () => { b.live = Math.max(0, b.live - 1); });
+
   if (role === 'broadcast') attachBroadcaster(conn);
   else attachViewer(conn);
 });
@@ -294,7 +444,11 @@ function attachBroadcaster(conn) {
   }
   broadcaster = conn;
   resetStream();
-  conn.json({ t: 'welcome', role: 'broadcast', mode: mode, n: viewers.size, viewers: Array.from(viewers.keys()) });
+  conn.json({
+    t: 'welcome', role: 'broadcast', mode: mode, n: viewers.size,
+    viewers: Array.from(viewers.keys()),
+    list: viewerList(), banned: Array.from(banned),
+  });
   log('painel do transmissor conectado');
 
   conn.onmessage = (msg, bin) => {
@@ -333,6 +487,28 @@ function attachBroadcaster(conn) {
         if (v) v.json({ t: msg.t, data: msg.data });
         break;
       }
+
+      case 'kick': {
+        const v = viewers.get(msg.id);
+        if (v) { log('expulsou ' + v.nick + ' (' + v.ip + ')'); disconnect(v, 'expulso'); }
+        break;
+      }
+
+      case 'ban': {
+        const v = viewers.get(msg.id);
+        const ip = v ? v.ip : normIp(msg.ip);
+        if (!ip || ip === '?') break;
+        banned.add(ip);
+        log('baniu o IP ' + ip);
+        for (const w of Array.from(viewers.values())) if (w.ip === ip) disconnect(w, 'banido');
+        pushViewers();
+        break;
+      }
+
+      case 'unban':
+        if (banned.delete(normIp(msg.ip))) log('desbaniu o IP ' + normIp(msg.ip));
+        pushViewers();
+        break;
     }
   };
 
@@ -349,14 +525,15 @@ function attachBroadcaster(conn) {
 function attachViewer(conn) {
   const id = nextId++;
   conn.id = id;
+  if (!conn.nick) conn.nick = 'Convidado ' + id;
   viewers.set(id, conn);
 
-  conn.json({ t: 'welcome', role: 'view', id: id, mode: mode, live: live, title: title });
+  conn.json({ t: 'welcome', role: 'view', id: id, nick: conn.nick, mode: mode, live: live, title: title });
   if (mode === 'relay' && live && relayInit) {
     conn.json({ t: 'relay-init', mime: relayMime });
     conn.send(OP.BIN, relayInit);
   }
-  if (broadcaster) broadcaster.json({ t: 'viewer-join', id: id, n: viewers.size });
+  if (broadcaster) broadcaster.json({ t: 'viewer-join', id: id, nick: conn.nick, ip: conn.ip, n: viewers.size });
   announceCount();
 
   conn.onmessage = (msg) => {
@@ -368,7 +545,7 @@ function attachViewer(conn) {
 
   conn.onclose = () => {
     viewers.delete(id);
-    if (broadcaster) broadcaster.json({ t: 'viewer-leave', id: id, n: viewers.size });
+    if (broadcaster) broadcaster.json({ t: 'viewer-leave', id: id, nick: conn.nick, n: viewers.size });
     announceCount();
   };
 }

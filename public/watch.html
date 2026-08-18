@@ -44,6 +44,9 @@
     padding: 9px 18px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
   }
   .toast.hidden { display: none; }
+
+  .gateRow { display: flex; gap: 8px; margin-top: 4px; }
+  .gateRow input { min-width: 200px; }
 </style>
 </head>
 <body>
@@ -60,7 +63,16 @@
 <div class="stage">
   <video id="video" autoplay playsinline muted></video>
 
-  <div class="overlay" id="overlay">
+  <div class="overlay" id="gate">
+    <h2>Como você quer aparecer?</h2>
+    <p>O dono da transmissão vê este nome na lista de quem está assistindo.</p>
+    <form id="gateForm" class="gateRow">
+      <input type="text" id="nickInput" maxlength="24" placeholder="Seu nome" autocomplete="nickname" autofocus>
+      <button type="submit" class="primary">Entrar</button>
+    </form>
+  </div>
+
+  <div class="overlay hidden" id="overlay">
     <div class="spinner" id="spinner"></div>
     <h2 id="ovTitle">Conectando</h2>
     <p id="ovText">Aguardando o servidor.</p>
@@ -78,6 +90,8 @@ const video = $('video');
 const PIN = new URLSearchParams(location.search).get('p') || '';
 
 let ws = null;
+let nick = '';
+let kicked = false;
 let mode = 'webrtc';
 let live = false;
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -123,12 +137,15 @@ function wsSend(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-  ws = new WebSocket(proto + location.host + '/ws?role=view' + (PIN ? '&pin=' + encodeURIComponent(PIN) : ''));
+  ws = new WebSocket(proto + location.host + '/ws?role=view'
+    + (PIN ? '&pin=' + encodeURIComponent(PIN) : '')
+    + '&nick=' + encodeURIComponent(nick));
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => setStatus('warn', 'conectado');
 
   ws.onclose = () => {
+    if (kicked) return;
     setStatus('off', 'sem conexão — tentando de novo');
     overlay('Conexão perdida', 'Tentando reconectar...', true);
     teardown();
@@ -176,6 +193,20 @@ function connect() {
 
       case 'count':
         $('viewerCount').textContent = m.n ? m.n + ' assistindo' : '';
+        $('viewerCount').title = (m.names || []).join(', ');
+        break;
+
+      case 'kicked':
+        kicked = true;
+        teardown();
+        setStatus('off', m.reason === 'banido' ? 'bloqueado' : 'removido');
+        overlay(
+          m.reason === 'banido' ? 'Seu acesso foi bloqueado' : 'Você foi removido da sala',
+          m.reason === 'banido'
+            ? 'O dono da transmissão bloqueou este endereço. Recarregar não adianta.'
+            : 'O dono da transmissão removeu você. Recarregue a página se quiser voltar a pedir entrada.',
+          false
+        );
         break;
 
       case 'relay-init':
@@ -379,11 +410,22 @@ video.addEventListener('dblclick', () => $('fsBtn').click());
 
 // ------------------------------------------------------------------ boot
 
-fetch('/config.json', { cache: 'no-store' })
-  .then((r) => r.json())
-  .then((cfg) => { if (cfg.iceServers && cfg.iceServers.length) iceServers = cfg.iceServers; })
-  .catch(() => {})
-  .finally(connect);
+try { $('nickInput').value = (localStorage.getItem('telar.nick') || '').slice(0, 24); } catch (e) {}
+
+$('gateForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  nick = $('nickInput').value.trim().slice(0, 24);
+  try { localStorage.setItem('telar.nick', nick); } catch (err) {}
+
+  $('gate').classList.add('hidden');
+  overlay('Conectando', 'Aguardando o servidor.', true);
+
+  fetch('/config.json', { cache: 'no-store' })
+    .then((r) => r.json())
+    .then((cfg) => { if (cfg.iceServers && cfg.iceServers.length) iceServers = cfg.iceServers; })
+    .catch(() => {})
+    .finally(connect);
+});
 </script>
 </body>
 </html>

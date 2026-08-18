@@ -45,8 +45,23 @@
   .check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--dim); cursor: pointer; }
   .check input { margin-top: 3px; }
 
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .grid3 label { display: flex; flex-direction: column; gap: 4px;
+                 font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); }
+  .grid3 select { padding: 7px 4px; font-size: 13px; }
+
   .note { font-size: 12px; color: var(--dim); line-height: 1.45; }
   .note.warn { color: var(--warn); }
+
+  .people, .banList { display: flex; flex-direction: column; gap: 6px; }
+  .banList:not(:empty) { margin-top: 4px; }
+  .person { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+            background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  .pinfo { display: flex; flex-direction: column; min-width: 0; }
+  .pinfo b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pinfo span { font-size: 11px; color: var(--dim); font-family: ui-monospace, Consolas, monospace; }
+  .pacts { display: flex; gap: 4px; flex: 0 0 auto; }
+  .pacts button, .banList button { padding: 5px 8px; font-size: 11px; }
 
   #log { font-family: ui-monospace, Consolas, monospace; font-size: 11px; color: var(--dim);
          background: #0b0d11; border: 1px solid var(--line); border-radius: 8px; padding: 8px;
@@ -70,6 +85,11 @@
       <p>Clique em <b>Compartilhar tela</b> e escolha a tela, janela ou aba.
       Para levar o áudio junto, marque <i>compartilhar áudio</i> na janela de seleção do navegador.</p>
     </div>
+    <div class="empty" id="previewOff" style="display:none">
+      <h2>No ar</h2>
+      <p>A prévia está desligada — desenhar sua própria tela de volta na tela custa
+      CPU e atrapalha o que você está transmitindo. Os números do lado dizem se está tudo certo.</p>
+    </div>
   </div>
 
   <aside>
@@ -90,15 +110,64 @@
 
     <div class="block">
       <label class="head">Qualidade</label>
-      <select id="quality">
-        <option value="leve">Leve — 720p / 10 fps / ~0,7 Mbps</option>
-        <option value="normal" selected>Normal — 1080p / 15 fps / ~1,8 Mbps</option>
-        <option value="nitido">Nítido — 1440p / 24 fps / ~4 Mbps</option>
+      <select id="preset">
+        <option value="leve">Leve — 720p · 10 fps · 0,8 Mb/s</option>
+        <option value="normal" selected>Normal — 1080p · 15 fps · 2 Mb/s</option>
+        <option value="nitido">Nítido — 1440p · 24 fps · 4 Mb/s</option>
+        <option value="custom">Personalizado</option>
       </select>
+
+      <div class="grid3">
+        <label>Resolução
+          <select id="res">
+            <option value="0">Original</option>
+            <option value="2160">2160p</option>
+            <option value="1440">1440p</option>
+            <option value="1080" selected>1080p</option>
+            <option value="900">900p</option>
+            <option value="720">720p</option>
+            <option value="540">540p</option>
+            <option value="360">360p</option>
+          </select>
+        </label>
+        <label>FPS
+          <select id="fps">
+            <option value="5">5</option>
+            <option value="8">8</option>
+            <option value="10">10</option>
+            <option value="12">12</option>
+            <option value="15" selected>15</option>
+            <option value="20">20</option>
+            <option value="24">24</option>
+            <option value="30">30</option>
+            <option value="60">60</option>
+          </select>
+        </label>
+        <label>Taxa
+          <select id="kbps">
+            <option value="400">0,4M</option>
+            <option value="600">0,6M</option>
+            <option value="800">0,8M</option>
+            <option value="1200">1,2M</option>
+            <option value="2000" selected>2M</option>
+            <option value="3000">3M</option>
+            <option value="4000">4M</option>
+            <option value="6000">6M</option>
+            <option value="8000">8M</option>
+            <option value="12000">12M</option>
+          </select>
+        </label>
+      </div>
+
       <select id="hint">
         <option value="detail" selected>Priorizar nitidez (código, texto, planilha)</option>
         <option value="motion">Priorizar fluidez (vídeo, animação, jogo)</option>
       </select>
+
+      <label class="check">
+        <input type="checkbox" id="showPreview">
+        <span>Mostrar prévia da minha tela <b>(gasta CPU e pode travar a transmissão)</b></span>
+      </label>
     </div>
 
     <div class="block">
@@ -124,6 +193,12 @@
     </div>
 
     <div class="block">
+      <label class="head">Quem está assistindo</label>
+      <div id="people" class="people"></div>
+      <div id="banList" class="banList"></div>
+    </div>
+
+    <div class="block">
       <label class="head">Registro</label>
       <div id="log"></div>
     </div>
@@ -134,9 +209,9 @@
 'use strict';
 
 const PRESETS = {
-  leve:   { h: 720,  fps: 10, kbps: 700 },
-  normal: { h: 1080, fps: 15, kbps: 1800 },
-  nitido: { h: 1440, fps: 24, kbps: 4000 },
+  leve:   { res: '720',  fps: '10', kbps: '800' },
+  normal: { res: '1080', fps: '15', kbps: '2000' },
+  nitido: { res: '1440', fps: '24', kbps: '4000' },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -176,7 +251,128 @@ function fmtRate(bps) {
   return Math.round(bps / 1000) + ' kb/s';
 }
 
-function preset() { return PRESETS[$('quality').value] || PRESETS.normal; }
+function settings() {
+  return {
+    h: parseInt($('res').value, 10) || 0,        // 0 = mantém a resolução original
+    fps: parseInt($('fps').value, 10) || 15,
+    kbps: parseInt($('kbps').value, 10) || 2000,
+  };
+}
+
+function videoConstraints() {
+  const s = settings();
+  const c = { frameRate: { ideal: s.fps, max: s.fps } };
+  if (s.h) c.height = { max: s.h };
+  return c;
+}
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  $('res').value = p.res;
+  $('fps').value = p.fps;
+  $('kbps').value = p.kbps;
+}
+
+// desenhar a própria tela de volta na tela custa caro; por padrão fica desligado
+function renderStage() {
+  const v = $('preview');
+  if (!stream) {
+    v.srcObject = null;
+    v.style.display = 'none';
+    $('empty').style.display = '';
+    $('previewOff').style.display = 'none';
+    return;
+  }
+  $('empty').style.display = 'none';
+  if ($('showPreview').checked) {
+    if (v.srcObject !== stream) v.srcObject = stream;
+    v.style.display = '';
+    $('previewOff').style.display = 'none';
+  } else {
+    v.srcObject = null;   // precisa ser null: display:none sozinho não para de decodificar
+    v.style.display = 'none';
+    $('previewOff').style.display = '';
+  }
+}
+
+// ------------------------------------------------------------------ pessoas
+
+let lastList = [];
+let bannedIps = [];
+
+function fmtSince(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'min';
+  return Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0');
+}
+
+function row(cls) { const d = document.createElement('div'); d.className = cls; return d; }
+
+function btn(text, cls, fn) {
+  const b = document.createElement('button');
+  b.textContent = text;
+  if (cls) b.className = cls;
+  b.onclick = fn;
+  return b;
+}
+
+function renderPeople() {
+  const box = $('people');
+  box.textContent = '';
+
+  if (!lastList.length) {
+    const note = row('note');
+    note.textContent = 'Ninguém assistindo ainda.';
+    box.appendChild(note);
+  }
+
+  for (const v of lastList) {
+    const r = row('person');
+    const info = row('pinfo');
+    const name = document.createElement('b');
+    name.textContent = v.nick;          // textContent: apelido nunca é interpretado como HTML
+    const meta = document.createElement('span');
+    meta.textContent = v.ip + ' · ' + fmtSince(v.since);
+    info.appendChild(name);
+    info.appendChild(meta);
+
+    const acts = row('pacts');
+    acts.appendChild(btn('Expulsar', '', () => {
+      wsSend({ t: 'kick', id: v.id });
+      log('expulsou ' + v.nick);
+    }));
+    acts.appendChild(btn('Banir IP', 'danger', () => {
+      if (!confirm('Banir o IP ' + v.ip + '?\n\nQuem estiver nesse endereço não consegue mais abrir a página.')) return;
+      wsSend({ t: 'ban', id: v.id });
+      log('baniu o IP ' + v.ip);
+    }));
+
+    r.appendChild(info);
+    r.appendChild(acts);
+    box.appendChild(r);
+  }
+
+  const bans = $('banList');
+  bans.textContent = '';
+  if (!bannedIps.length) return;
+  const head = row('note');
+  head.textContent = 'IPs banidos nesta sessão:';
+  bans.appendChild(head);
+  for (const ip of bannedIps) {
+    const r = row('person');
+    const s = document.createElement('span');
+    s.className = 'mono';
+    s.textContent = ip;
+    r.appendChild(s);
+    r.appendChild(btn('Desbanir', '', () => { wsSend({ t: 'unban', ip: ip }); log('desbaniu ' + ip); }));
+    bans.appendChild(r);
+  }
+}
+
+setInterval(() => { if (lastList.length) renderPeople(); }, 5000);
 
 // ------------------------------------------------------------------ ws
 
@@ -212,6 +408,9 @@ function connect() {
         knownViewers.clear();
         (m.viewers || []).forEach((id) => knownViewers.add(id));
         $('statViewers').textContent = m.n || 0;
+        lastList = m.list || [];
+        bannedIps = m.banned || [];
+        renderPeople();
         // reconexão no meio da transmissão: refaz a entrega para quem já estava lá
         if (stream) {
           wsSend({ t: 'live', live: true });
@@ -230,10 +429,16 @@ function connect() {
         $('statViewers').textContent = m.n;
         break;
 
+      case 'viewers':
+        lastList = m.list || [];
+        bannedIps = m.banned || [];
+        renderPeople();
+        break;
+
       case 'viewer-join':
         knownViewers.add(m.id);
         $('statViewers').textContent = m.n;
-        log('espectador #' + m.id + ' entrou');
+        log((m.nick || ('#' + m.id)) + ' entrou (' + (m.ip || '?') + ')');
         if (!stream) break;
         if (mode === 'webrtc') offerTo(m.id);
         else kickRecorder();   // força um keyframe novo pra quem acabou de chegar
@@ -243,7 +448,7 @@ function connect() {
         knownViewers.delete(m.id);
         $('statViewers').textContent = m.n;
         closePeer(m.id);
-        log('espectador #' + m.id + ' saiu');
+        log((m.nick || ('#' + m.id)) + ' saiu');
         break;
 
       case 'sdp': {
@@ -275,10 +480,9 @@ function connect() {
 // ------------------------------------------------------------------ captura
 
 async function start() {
-  const p = preset();
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: { ideal: p.fps, max: p.fps }, height: { max: p.h } },
+      video: videoConstraints(),
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
   } catch (e) {
@@ -290,9 +494,7 @@ async function start() {
   vt.contentHint = $('hint').value;
   vt.addEventListener('ended', stop);
 
-  $('preview').srcObject = stream;
-  $('preview').style.display = '';
-  $('empty').style.display = 'none';
+  renderStage();
   $('startBtn').disabled = true;
   $('stopBtn').disabled = false;
   startedAt = Date.now();
@@ -311,9 +513,7 @@ function stop() {
   stream = null;
   stopRecorder();
   peers.forEach((pc, id) => closePeer(id));
-  $('preview').srcObject = null;
-  $('preview').style.display = 'none';
-  $('empty').style.display = '';
+  renderStage();
   $('startBtn').disabled = false;
   $('stopBtn').disabled = true;
   startedAt = 0;
@@ -326,12 +526,11 @@ function stop() {
 
 async function applyQuality() {
   if (!stream) return;
-  const p = preset();
   const vt = stream.getVideoTracks()[0];
   if (!vt) return;
   vt.contentHint = $('hint').value;
   try {
-    await vt.applyConstraints({ frameRate: { ideal: p.fps, max: p.fps }, height: { max: p.h } });
+    await vt.applyConstraints(videoConstraints());
   } catch (e) { /* nem todo navegador aceita reconstranger captura de tela */ }
 
   for (const pc of peers.values()) await tuneSender(pc);
@@ -339,7 +538,7 @@ async function applyQuality() {
 }
 
 async function tuneSender(pc) {
-  const p = preset();
+  const p = settings();
   const sender = pc.getSenders().find((s) => s.track && s.track.kind === 'video');
   if (!sender) return;
   try {
@@ -398,7 +597,7 @@ function pickMime() {
 
 function startRecorder() {
   if (!stream || recorder) return;
-  const p = preset();
+  const p = settings();
   const mime = pickMime();
   let rec;
   try {
@@ -531,8 +730,16 @@ async function refreshConfig() {
 
 $('startBtn').onclick = start;
 $('stopBtn').onclick = stop;
-$('quality').onchange = applyQuality;
+$('preset').onchange = (e) => {
+  if (e.target.value === 'custom') return;
+  applyPreset(e.target.value);
+  applyQuality();
+};
+['res', 'fps', 'kbps'].forEach((id) => {
+  $(id).onchange = () => { $('preset').value = 'custom'; applyQuality(); };
+});
 $('hint').onchange = applyQuality;
+$('showPreview').onchange = renderStage;
 $('mode').onchange = (e) => switchMode(e.target.value);
 $('copyBtn').onclick = async () => {
   const v = $('shareUrl').value;
