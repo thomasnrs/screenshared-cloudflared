@@ -45,6 +45,14 @@
   }
   .toast.hidden { display: none; }
 
+  .unmute {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 16px; font-weight: 600; padding: 14px 26px; border-radius: 999px;
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    box-shadow: 0 12px 44px rgba(0,0,0,.65);
+  }
+  .unmute[hidden] { display: none; }
+
   .gateRow { display: flex; gap: 8px; margin-top: 4px; }
   .gateRow input { min-width: 200px; }
 </style>
@@ -56,6 +64,7 @@
   <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
   <span class="spacer"></span>
   <span class="status" id="viewerCount"></span>
+  <span class="status" id="audioTag"></span>
   <button id="soundBtn" hidden>Ativar som</button>
   <button id="fsBtn">Tela cheia</button>
 </header>
@@ -79,6 +88,7 @@
     <button id="playBtn" class="primary" hidden>Tocar</button>
   </div>
 
+  <button class="unmute" id="unmuteBtn" hidden>Clique para ouvir</button>
   <div class="toast hidden" id="toast"></div>
 </div>
 
@@ -92,6 +102,7 @@ const PIN = new URLSearchParams(location.search).get('p') || '';
 let ws = null;
 let nick = '';
 let kicked = false;
+let streamHasAudio = false;
 let mode = 'webrtc';
 let live = false;
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
@@ -128,7 +139,30 @@ function toast(msg) {
 
 function tryPlay() {
   const p = video.play();
-  if (p && p.catch) p.catch(() => { $('playBtn').hidden = false; overlay('Pronto', 'Clique para começar a assistir.', false); });
+  if (!p || !p.catch) return;
+  p.catch(() => {
+    // o navegador barrou tocar com som sem gesto: toca mudo e pede um clique
+    if (!video.muted) {
+      video.muted = true;
+      refreshAudioUi();
+      const again = video.play();
+      if (again && again.catch) {
+        again.catch(() => { $('playBtn').hidden = false; overlay('Pronto', 'Clique para começar a assistir.', false); });
+      }
+      return;
+    }
+    $('playBtn').hidden = false;
+    overlay('Pronto', 'Clique para começar a assistir.', false);
+  });
+}
+
+// o som so precisa de atencao quando existe som para ouvir
+function refreshAudioUi() {
+  const temSom = streamHasAudio;
+  $('audioTag').textContent = live && !temSom ? 'sem áudio' : '';
+  $('soundBtn').hidden = !temSom;
+  $('soundBtn').textContent = video.muted ? 'Ativar som' : 'Mudo';
+  $('unmuteBtn').hidden = !(temSom && video.muted && !video.paused);
 }
 
 // ------------------------------------------------------------------ ws
@@ -163,6 +197,8 @@ function connect() {
       case 'welcome':
         mode = m.mode;
         live = m.live;
+        streamHasAudio = !!m.audio;
+        refreshAudioUi();
         if (m.title) document.title = m.title + ' — screenshared';
         updateIdle();
         break;
@@ -175,8 +211,10 @@ function connect() {
 
       case 'live':
         live = m.live;
+        streamHasAudio = !!m.audio;
         if (m.mode) mode = m.mode;
         if (!live) { teardown(); }
+        refreshAudioUi();
         updateIdle();
         break;
 
@@ -244,9 +282,11 @@ async function onOffer(offer) {
     if (video.srcObject !== e.streams[0]) {
       if (video.getAttribute('src')) video.removeAttribute('src');
       video.srcObject = e.streams[0];
+      // o proprio stream e a fonte mais confiavel sobre ter audio
+      if (e.streams[0].getAudioTracks().length) streamHasAudio = true;
       hideOverlay();
       tryPlay();
-      $('soundBtn').hidden = false;
+      refreshAudioUi();
     }
   };
 
@@ -381,7 +421,7 @@ setInterval(() => {
 video.addEventListener('playing', () => {
   hideOverlay();
   $('playBtn').hidden = true;
-  $('soundBtn').hidden = false;
+  refreshAudioUi();
   setStatus('on', mode === 'relay' ? 'no ar (compatível)' : 'no ar (WebRTC)');
 });
 
@@ -391,10 +431,20 @@ $('playBtn').onclick = () => { video.muted = false; $('soundBtn').textContent = 
 
 $('soundBtn').onclick = () => {
   video.muted = !video.muted;
-  $('soundBtn').textContent = video.muted ? 'Ativar som' : 'Mudo';
   if (!video.muted) { video.volume = 1; tryPlay(); }
+  refreshAudioUi();
   toast(video.muted ? 'Som desligado' : 'Som ligado');
 };
+
+$('unmuteBtn').onclick = () => {
+  video.muted = false;
+  video.volume = 1;
+  tryPlay();
+  refreshAudioUi();
+};
+
+video.addEventListener('volumechange', refreshAudioUi);
+video.addEventListener('pause', refreshAudioUi);
 
 $('fsBtn').onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
@@ -416,6 +466,10 @@ $('gateForm').addEventListener('submit', (e) => {
   e.preventDefault();
   nick = $('nickInput').value.trim().slice(0, 24);
   try { localStorage.setItem('screenshared.nick', nick); } catch (err) {}
+
+  // clicar em "Entrar" conta como gesto do usuário, então dá para já entrar
+  // com som — sem isso o vídeo nasce mudo e a pessoa acha que não tem áudio
+  video.muted = false;
 
   $('gate').classList.add('hidden');
   overlay('Conectando', 'Aguardando o servidor.', true);

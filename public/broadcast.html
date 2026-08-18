@@ -154,6 +154,7 @@
       <div class="panel-body">
         <button id="startBtn" class="primary wide">Compartilhar tela</button>
         <button id="stopBtn" class="danger wide" disabled>Parar</button>
+        <div class="verdict bad" id="audioWarn" hidden></div>
         <div class="sep"></div>
         <label class="lbl">Link para quem vai assistir</label>
         <div class="link">
@@ -172,6 +173,7 @@
           <div class="stat"><b id="statTime">00:00</b><span>no ar</span></div>
           <div class="stat"><b id="statRate">—</b><span>envio</span></div>
           <div class="stat"><b id="statRes">—</b><span>resolução</span></div>
+          <div class="stat"><b id="statAudio">—</b><span>áudio</span></div>
         </div>
       </div>
     </section>
@@ -536,7 +538,7 @@ function connect() {
         renderPeople();
         // reconexão no meio da transmissão: refaz a entrega para quem já estava lá
         if (stream) {
-          wsSend({ t: 'live', live: true });
+          wsSend({ t: 'live', live: true, audio: stream.getAudioTracks().length > 0 });
           if (mode === 'relay') restartRecorder();
           else knownViewers.forEach(offerTo);
         }
@@ -550,6 +552,10 @@ function connect() {
 
       case 'count':
         $('statViewers').textContent = m.n;
+        break;
+
+      case 'notice':
+        log(m.text);
         break;
 
       case 'viewers':
@@ -624,9 +630,11 @@ async function start() {
   $('liveChip').textContent = 'no ar';
 
   await applyQuality();
-  log('capturando' + (stream.getAudioTracks().length ? ' com áudio' : ' sem áudio'));
+  log('capturando' + (stream.getAudioTracks().length ? ' com áudio' : ' SEM áudio'));
 
-  wsSend({ t: 'live', live: true });
+  const comAudio = stream.getAudioTracks().length > 0;
+  wsSend({ t: 'live', live: true, audio: comAudio });
+  reportAudio(comAudio);
   startThumbs();
   if (mode === 'webrtc') knownViewers.forEach(offerTo);
   else startRecorder();
@@ -647,6 +655,8 @@ function stop() {
   $('statTime').textContent = '00:00';
   $('statRate').textContent = '—';
   $('statRes').textContent = '—';
+  $('statAudio').textContent = '—';
+  $('audioWarn').hidden = true;
   wsSend({ t: 'live', live: false });
   log('transmissão encerrada');
 }
@@ -676,6 +686,20 @@ async function tuneSender(pc) {
     params.degradationPreference = $('hint').value === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
     await sender.setParameters(params);
   } catch (e) {}
+}
+
+// O áudio de tela no Windows so' existe em "Tela inteira" ou "Aba do Chrome".
+// Compartilhando uma JANELA o navegador nem oferece a caixinha — e a pessoa fica
+// achando que o programa perdeu o som.
+function reportAudio(temAudio) {
+  $('statAudio').textContent = temAudio ? 'sim' : 'não';
+  const w = $('audioWarn');
+  if (temAudio) { w.hidden = true; return; }
+  w.hidden = false;
+  w.textContent = 'Esta captura veio SEM áudio. Pare, clique em Compartilhar tela de novo e escolha '
+    + '"Tela inteira" ou uma "Aba" do navegador — só nessas duas o Chrome/Edge mostra a caixinha '
+    + '"Compartilhar áudio", e ela precisa estar marcada. Compartilhando uma janela solta, '
+    + 'o Windows não deixa capturar som.';
 }
 
 // ------------------------------------------------------------------ webrtc
@@ -784,6 +808,20 @@ function kickRecorder() {
 
 const VERBS = { 0: 'Jogando', 2: 'Ouvindo', 3: 'Assistindo', 5: 'Competindo em' };
 let dcAppName = '';
+let dcTimer = null;
+let staleKey = false;
+
+// aba velha + servidor reiniciado = chave que nao vale mais. Antes isso virava
+// um loop de 403 que acabava bloqueando o proprio painel; agora para e avisa.
+function onStaleKey() {
+  if (staleKey) return;
+  staleKey = true;
+  clearInterval(dcTimer);
+  stopThumbs();
+  dcVerdict('bad', 'Esta aba está com uma chave antiga: o servidor foi reiniciado depois que ela abriu. '
+    + 'Abra o painel de novo pelo link que apareceu no terminal.');
+  log('a chave desta aba não vale mais — reabra o painel pelo terminal');
+}
 
 function dcPreview() {
   $('pvTop').textContent = (VERBS[$('dcType').value] || 'Jogando') + ' ' + (dcAppName || '…');
@@ -807,6 +845,7 @@ async function dcTest() {
   dcVerdict('', 'Mandando um status de teste...');
   try {
     const r = await fetch('/discord-test?k=' + encodeURIComponent(KEY), { method: 'POST' });
+    if (r.status === 403) { onStaleKey(); $('dcTest').disabled = false; return; }
     const j = await r.json();
     if (!j.ok) {
       dcVerdict('bad', 'Não deu: ' + j.why);
@@ -844,6 +883,7 @@ function dcApplyStatus(s) {
 
 async function dcFetch() {
   const r = await fetch('/settings?k=' + encodeURIComponent(KEY), { cache: 'no-store' });
+  if (r.status === 403) { onStaleKey(); throw new Error('403'); }
   if (!r.ok) throw new Error('HTTP ' + r.status);
   return r.json();
 }
@@ -876,6 +916,7 @@ async function dcSave() {
         activityType: parseInt($('dcType').value, 10),
       }),
     });
+    if (r.status === 403) { onStaleKey(); $('dcSave').disabled = false; return; }
     const j = await r.json();
     if (j && j.cfg) {
       dcFill(j.cfg);          // mostra o que o servidor aceitou, não o que foi digitado
@@ -923,7 +964,8 @@ async function sendThumb() {
   const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.5));
   if (!blob) return;
   try {
-    await fetch('/thumb?k=' + encodeURIComponent(KEY), { method: 'POST', body: blob });
+    const r = await fetch('/thumb?k=' + encodeURIComponent(KEY), { method: 'POST', body: blob });
+    if (r.status === 403) onStaleKey();
   } catch (e) {}
 }
 
@@ -1055,7 +1097,7 @@ document.querySelectorAll('.panel').forEach((p) => {
 ['dcText', 'dcInvite'].forEach((id) => { $(id).oninput = dcPreview; });
 $('dcType').onchange = dcPreview;
 dcLoad();
-setInterval(dcPoll, 8000);
+dcTimer = setInterval(dcPoll, 8000);
 $('mode').onchange = (e) => switchMode(e.target.value);
 $('copyBtn').onclick = async () => {
   const v = $('shareUrl').value;

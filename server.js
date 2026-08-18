@@ -99,20 +99,20 @@ function normIp(ip) {
   if (!ip) return '?';
   ip = String(ip).trim();
   if (ip.startsWith('::ffff:')) ip = ip.slice(7);   // ipv4 mapeado em ipv6
-  return ip;
+  if (ip === '::1') ip = '127.0.0.1';               // mesma maquina, dois nomes:
+  return ip;                                        // o navegador usa ::1 em "localhost"
 }
 
-function isLocal(ip) {
-  ip = normIp(ip);
-  return ip === '127.0.0.1' || ip === '::1' || ip === '?';
-}
+// esta maquina. O painel vive aqui, entao loopback nunca e' bloqueado nem
+// limitado — senao uma aba velha com a chave antiga tranca o dono para fora.
+function isLoopback(ip) { return normIp(ip) === '127.0.0.1'; }
 
 // atras do cloudflared toda conexao chega de 127.0.0.1; o IP de verdade vem no
 // cabecalho. So' confiamos nele quando o salto imediato e' local, senao qualquer
 // um na LAN forjaria o proprio IP e escaparia de ban e rate-limit.
 function clientIp(req) {
   const hop = normIp(req.socket && req.socket.remoteAddress);
-  if (isLocal(hop)) {
+  if (isLoopback(hop)) {
     const cf = req.headers['cf-connecting-ip'];
     if (cf) return normIp(cf);
     const xff = req.headers['x-forwarded-for'];
@@ -128,6 +128,7 @@ function bucket(ip) {
 }
 
 function blocked(ip) {
+  if (isLoopback(ip)) return false;
   if (banned.has(ip)) return true;
   const b = buckets.get(ip);
   return !!(b && b.until > Date.now());
@@ -142,6 +143,7 @@ function allow(list, windowMs, limit) {
 }
 
 function noteFail(ip) {
+  if (isLoopback(ip)) return;   // o dono da maquina nao esta se atacando
   const b = bucket(ip);
   if (++b.fails >= LIM.keyFails) {
     b.until = Date.now() + LIM.blockMs;
@@ -333,6 +335,7 @@ let awaitingInit = false;
 let title = '';
 let publicUrl = '';
 let liveSince = 0;
+let hasAudio = false;   // a captura veio com som?
 let thumb = null;          // miniatura borrada, JPEG cru
 let thumbVersion = 0;
 
@@ -449,6 +452,7 @@ function resetStream() {
   live = false;
   liveSince = 0;
   thumb = null;
+  hasAudio = false;
   relayInit = null;
   relayMime = '';
   awaitingInit = false;
@@ -532,7 +536,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('Acesso bloqueado pelo dono da transmissao.');
   }
-  if (!allow(bucket(ip).http, 60000, LIM.httpPerMin)) {
+  if (!isLoopback(ip) && !allow(bucket(ip).http, 60000, LIM.httpPerMin)) {
     res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '30' });
     return res.end('Requisicoes demais. Espere um pouco.');
   }
@@ -656,8 +660,9 @@ server.on('upgrade', (req, socket) => {
 
   const ip = clientIp(req);
   const b = bucket(ip);
+  const local = isLoopback(ip);
   if (blocked(ip)) return socket.destroy();
-  if (!allow(b.ws, 60000, LIM.wsPerMin)) return socket.destroy();
+  if (!local && !allow(b.ws, 60000, LIM.wsPerMin)) return socket.destroy();
 
   const role = url.searchParams.get('role') === 'broadcast' ? 'broadcast' : 'view';
 
@@ -665,7 +670,7 @@ server.on('upgrade', (req, socket) => {
     if (!safeEqual(url.searchParams.get('key'), KEY)) { noteFail(ip); return socket.destroy(); }
   } else {
     if (PIN && !safeEqual(url.searchParams.get('pin'), PIN)) { noteFail(ip); return socket.destroy(); }
-    if (b.live >= LIM.concurrent) return socket.destroy();
+    if (!local && b.live >= LIM.concurrent) return socket.destroy();
     if (viewers.size >= MAX_VIEWERS) return socket.destroy();
   }
 
@@ -724,9 +729,10 @@ function attachBroadcaster(conn) {
         break;
       case 'live':
         live = !!msg.live;
+        hasAudio = !!msg.audio;
         if (live) { if (!liveSince) liveSince = Date.now(); }
-        else { relayInit = null; awaitingInit = false; liveSince = 0; thumb = null; }
-        toViewers({ t: 'live', live: live, mode: mode });
+        else { relayInit = null; awaitingInit = false; liveSince = 0; thumb = null; hasAudio = false; }
+        toViewers({ t: 'live', live: live, mode: mode, audio: hasAudio });
         updatePresence();
         log(live ? 'transmissao iniciada' : 'transmissao encerrada');
         break;
@@ -757,6 +763,10 @@ function attachBroadcaster(conn) {
         const v = viewers.get(msg.id);
         const ip = v ? v.ip : normIp(msg.ip);
         if (!ip || ip === '?') break;
+        if (isLoopback(ip)) {
+          conn.json({ t: 'notice', text: 'Esse espectador está nesta mesma máquina — banir o IP trancaria o seu painel. Use Expulsar.' });
+          break;
+        }
         banned.add(ip);
         log('baniu o IP ' + ip);
         for (const w of Array.from(viewers.values())) if (w.ip === ip) disconnect(w, 'banido');
@@ -788,7 +798,7 @@ function attachViewer(conn) {
   if (!conn.nick) conn.nick = 'Convidado ' + id;
   viewers.set(id, conn);
 
-  conn.json({ t: 'welcome', role: 'view', id: id, nick: conn.nick, mode: mode, live: live, title: title });
+  conn.json({ t: 'welcome', role: 'view', id: id, nick: conn.nick, mode: mode, live: live, audio: hasAudio, title: title });
   if (mode === 'relay' && live && relayInit) {
     conn.json({ t: 'relay-init', mime: relayMime });
     conn.send(OP.BIN, relayInit);

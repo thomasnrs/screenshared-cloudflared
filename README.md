@@ -40,9 +40,20 @@ O terminal mostra:
 O painel abre sozinho no navegador. Clique em **Compartilhar tela**, escolha a tela,
 a janela ou a aba, e pronto — quem tiver o link já está vendo.
 
-Para levar o **áudio** junto, marque *compartilhar áudio do sistema* / *da aba* na
-janelinha de seleção do navegador. Isso só existe no Chrome e no Edge; o Firefox
-compartilha vídeo mas não áudio de tela.
+### Áudio
+
+Esta é a parte que mais confunde, então em ordem:
+
+1. **Escolha "Tela inteira" ou uma "Aba"** na janelinha de seleção. Compartilhando
+   uma **janela solta** o Windows não deixa capturar som — o navegador nem oferece
+   a opção. É limitação do sistema, não do programa.
+2. **Marque a caixinha "Compartilhar áudio"** ali mesmo. Ela vem desmarcada.
+3. O painel mostra **áudio: sim/não** nos números. Se vier "não", ele explica o que
+   fazer — não adianta procurar o problema do outro lado.
+4. Quem assiste entra **já com som**. Se o navegador da pessoa bloquear, aparece um
+   botão grande **Clique para ouvir** no meio do vídeo.
+
+Só Chrome e Edge capturam áudio de tela. O Firefox compartilha vídeo, mas não som.
 
 `Ctrl+C` encerra tudo — servidor e túnel.
 
@@ -96,6 +107,19 @@ com ela desligada o `srcObject` do vídeo é realmente solto, não só escondido
 
 Enquanto ela está desligada, os números do painel (assistindo, tempo no ar, envio,
 resolução) continuam dizendo se está tudo certo.
+
+---
+
+## Desinstalar
+
+**Windows** — duplo clique em `uninst.bat`. **Linux/macOS** — `./uninst.sh`.
+
+Ele mostra o que vai apagar e pede confirmação. Some com o `bin/` (cloudflared e
+a cópia portátil do Node), o `screenshared.config.json` e o `tunnel.log`. O código
+fica — para remover tudo, apague a pasta depois.
+
+Nada foi instalado no sistema: sem registro do Windows, sem pacote, sem serviço,
+sem sudo. Se preferir, apagar a pasta inteira na mão tem o mesmo efeito.
 
 ---
 
@@ -347,6 +371,7 @@ que o Safari não reproduz via MSE.
 | `public/broadcast.html` | painel: captura, presets, WebRTC por espectador, gravador do relay |
 | `public/watch.html` | espectador: apelido na entrada, WebRTC ou MediaSource, cola na ponta ao vivo |
 | `discord.js` | Rich Presence pelo IPC local do cliente, sem dependência |
+| `uninst.bat` / `uninst.sh` | apaga o que foi baixado (cloudflared, Node portátil, config) |
 | `screenshared.config.json` | o que o painel salvou (App ID, convite, texto do status) |
 | `tunnel.log` | saída crua do cloudflared, para quando o túnel der problema |
 
