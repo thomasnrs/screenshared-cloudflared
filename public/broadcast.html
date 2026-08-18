@@ -101,6 +101,19 @@
   .pacts { display: flex; gap: 4px; flex: 0 0 auto; }
   .pacts button, .banList button { padding: 4px 8px; font-size: 10.5px; }
 
+  .chatLog {
+    height: 190px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+    background: var(--stage); border: 1px solid var(--line); border-radius: 3px; padding: 8px;
+  }
+  .chatLog .msg { font-size: 12.5px; line-height: 1.45; word-break: break-word; }
+  .chatLog .msg b { color: #8fb4ff; margin-right: 6px; }
+  .chatLog .msg.host b { color: #ffcc66; }
+  .chatLog .msg.sys { color: var(--dim); font-style: italic; font-size: 11.5px; }
+  .chatLog .empty { color: var(--dim); font-size: 12px; font-style: italic; }
+  .chatForm { display: flex; gap: 6px; }
+  .chatForm input { flex: 1; min-width: 0; font-size: 12.5px; }
+  .chatForm button { padding: 6px 12px; font-size: 12.5px; }
+
   .dcCard { background: var(--stage); border: 1px solid var(--line); border-radius: 4px; padding: 9px; }
   .dcCardHead { font-size: 9px; text-transform: uppercase; letter-spacing: .09em;
                 color: var(--dim); margin-bottom: 8px; }
@@ -313,6 +326,17 @@
       </div>
     </section>
 
+    <section class="panel" data-panel="chat">
+      <header class="panel-head"><span class="chev"></span>Mensagens<span class="chip" id="chatChip">0</span></header>
+      <div class="panel-body">
+        <div class="chatLog" id="chatLog"></div>
+        <form class="chatForm" id="chatForm">
+          <input type="text" id="chatInput" maxlength="300" placeholder="Falar com quem está assistindo" autocomplete="off">
+          <button type="submit" class="primary">Enviar</button>
+        </form>
+      </div>
+    </section>
+
     <section class="panel" data-panel="people">
       <header class="panel-head"><span class="chev"></span>Quem está assistindo</header>
       <div class="panel-body">
@@ -419,6 +443,42 @@ function renderStage() {
     v.style.display = 'none';
     $('previewOff').style.display = '';
   }
+}
+
+// ------------------------------------------------------------------ mensagens
+
+let chatCount = 0;
+
+function addMsg(m) {
+  const box = $('chatLog');
+  const vazio = box.querySelector('.empty');
+  if (vazio) box.removeChild(vazio);
+
+  const perto = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  const row = document.createElement('div');
+  row.className = 'msg' + (m.host ? ' host' : '');
+  const who = document.createElement('b');
+  who.textContent = m.nick;          // textContent: mensagem de fora nunca vira HTML
+  const txt = document.createElement('span');
+  txt.textContent = m.text;
+  row.appendChild(who);
+  row.appendChild(txt);
+  box.appendChild(row);
+
+  while (box.childElementCount > 250) box.removeChild(box.firstChild);
+  if (perto) box.scrollTop = box.scrollHeight;
+
+  chatCount++;
+  $('chatChip').textContent = chatCount;
+}
+
+function chatEmpty() {
+  const box = $('chatLog');
+  if (box.childElementCount) return;
+  const d = document.createElement('div');
+  d.className = 'empty';
+  d.textContent = 'Nenhuma mensagem ainda.';
+  box.appendChild(d);
 }
 
 // ------------------------------------------------------------------ pessoas
@@ -556,6 +616,18 @@ function connect() {
 
       case 'notice':
         log(m.text);
+        break;
+
+      case 'chat':
+        addMsg(m);
+        break;
+
+      case 'chat-history':
+        (m.list || []).forEach(addMsg);
+        break;
+
+      case 'chat-slow':
+        log('devagar com as mensagens');
         break;
 
       case 'viewers':
@@ -1076,6 +1148,15 @@ $('preset').onchange = (e) => {
 $('hint').onchange = applyQuality;
 $('showPreview').onchange = renderStage;
 $('discordThumb').onchange = () => { dcPreview(); if (stream && $('discordThumb').checked) sendThumb(); };
+$('chatForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('chatInput').value.trim();
+  if (!text) return;
+  wsSend({ t: 'chat', text: text });
+  $('chatInput').value = '';
+});
+chatEmpty();
+
 $('dcSave').onclick = dcSave;
 $('dcTest').onclick = dcTest;
 

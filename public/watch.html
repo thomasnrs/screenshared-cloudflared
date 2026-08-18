@@ -6,23 +6,98 @@
 <title>screenshared</title>
 <link rel="stylesheet" href="/style.css">
 <style>
-  body { display: flex; flex-direction: column; background: #000; }
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; background: #000; }
 
-  header {
-    display: flex; align-items: center; gap: 12px;
-    padding: 9px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
-    flex: 0 0 auto;
+  .stage { flex: 1; position: relative; min-width: 0; overflow: hidden; background: #000; }
+
+  video {
+    width: 100%; height: 100%; object-fit: contain; display: block;
+    background: #000; transform-origin: center center; will-change: transform;
   }
-  header h1 { font-size: 14px; margin: 0; font-weight: 700; letter-spacing: .3px; }
-  header .status { font-size: 13px; color: var(--dim); }
-  header .spacer { flex: 1; }
-  header button { padding: 6px 12px; font-size: 13px; }
+  .stage.zoomed video { cursor: grab; }
+  .stage.zoomed.dragging video { cursor: grabbing; }
 
-  .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; }
-  video { width: 100%; height: 100%; object-fit: contain; background: #000; display: block; }
+  /* ---- barras que somem sozinhas ---- */
+
+  .bar {
+    position: absolute; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    font-size: 13px; color: var(--text);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .bar .sp { flex: 1; }
+  .bar.top { top: 0; background: linear-gradient(to bottom, rgba(0,0,0,.78), rgba(0,0,0,0)); }
+  .bar.top b { font-weight: 700; letter-spacing: .3px; }
+  .bar.top span { color: #c6cedb; }
+  .bar.bottom {
+    bottom: 0; justify-content: flex-end;
+    background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,0));
+  }
+  .bar.bottom button {
+    background: rgba(24,29,37,.86); border-color: rgba(255,255,255,.14);
+    backdrop-filter: blur(6px);
+  }
+  .bar.bottom button:hover:not(:disabled) { background: rgba(42,50,62,.94); }
+
+  body.idle .bar { opacity: 0; pointer-events: none; }
+  body.idle .bar.top { transform: translateY(-8px); }
+  body.idle .bar.bottom { transform: translateY(8px); }
+  body.idle .stage { cursor: none; }
+
+  #volume { width: 92px; accent-color: var(--accent); background: transparent; cursor: pointer; }
+
+  .zoomTag {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #c6cedb;
+    background: rgba(24,29,37,.86); border: 1px solid rgba(255,255,255,.14);
+    border-radius: 4px; padding: 4px 8px;
+  }
+  .badge {
+    display: inline-block; min-width: 17px; margin-left: 6px; padding: 0 5px;
+    font-size: 11px; font-weight: 700; line-height: 17px; text-align: center;
+    background: var(--accent); color: #fff; border-radius: 9px;
+  }
+  [hidden] { display: none !important; }
+
+  /* ---- chat ---- */
+
+  .chat {
+    width: 0; flex: 0 0 auto; overflow: hidden;
+    display: flex; flex-direction: column;
+    background: var(--bar); border-left: 1px solid var(--line);
+    transition: width .18s ease;
+  }
+  body.chat-open .chat { width: 300px; }
+  @media (max-width: 640px) {
+    body.chat-open .chat { width: 100%; }
+    body.chat-open .stage { display: none; }
+  }
+
+  .chat > header {
+    display: flex; align-items: center; height: 38px; padding: 0 12px; gap: 8px;
+    border-bottom: 1px solid var(--line); background: var(--head);
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
+    color: #aeb8c6; flex: 0 0 auto;
+  }
+  .chat > header button { margin-left: auto; padding: 2px 9px; font-size: 15px; line-height: 1; }
+
+  .chatLog {
+    flex: 1; overflow-y: auto; padding: 10px;
+    display: flex; flex-direction: column; gap: 7px; min-width: 300px;
+  }
+  .msg { font-size: 13px; line-height: 1.45; word-break: break-word; }
+  .msg b { color: #8fb4ff; margin-right: 6px; }
+  .msg.host b { color: #ffcc66; }
+  .msg.host b::after { content: ' \2605'; font-size: 10px; }
+  .msg.sys { color: var(--dim); font-style: italic; font-size: 12px; }
+
+  .chatForm { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--line); min-width: 300px; }
+  .chatForm input { flex: 1; min-width: 0; }
+
+  /* ---- sobreposicoes ---- */
 
   .overlay {
-    position: absolute; inset: 0;
+    position: absolute; inset: 0; z-index: 8;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 14px; text-align: center; padding: 24px;
     background: radial-gradient(ellipse at center, #12161d 0%, #06080b 100%);
@@ -30,51 +105,59 @@
   .overlay h2 { margin: 0; font-size: 20px; font-weight: 700; }
   .overlay p { margin: 0; color: var(--dim); max-width: 420px; }
   .overlay.hidden { display: none; }
+  .gateRow { display: flex; gap: 8px; margin-top: 4px; }
+  .gateRow input { min-width: 200px; }
 
   .spinner {
     width: 26px; height: 26px; border-radius: 50%;
     border: 3px solid var(--line); border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
+    animation: spin .9s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .toast {
-    position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
-    background: rgba(20,24,31,.94); border: 1px solid var(--line); border-radius: 999px;
-    padding: 9px 18px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
-  }
-  .toast.hidden { display: none; }
-
   .unmute {
-    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 7;
     font-size: 16px; font-weight: 600; padding: 14px 26px; border-radius: 999px;
     background: var(--accent); border-color: var(--accent); color: #fff;
     box-shadow: 0 12px 44px rgba(0,0,0,.65);
   }
-  .unmute[hidden] { display: none; }
 
-  .gateRow { display: flex; gap: 8px; margin-top: 4px; }
-  .gateRow input { min-width: 200px; }
+  .toast {
+    position: absolute; left: 50%; bottom: 68px; transform: translateX(-50%); z-index: 6;
+    background: rgba(20,24,31,.94); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 18px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  }
+  .toast.hidden { display: none; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>screenshared</h1>
-  <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
-  <span class="spacer"></span>
-  <span class="status" id="viewerCount"></span>
-  <span class="status" id="audioTag"></span>
-  <button id="soundBtn" hidden>Ativar som</button>
-  <button id="fsBtn">Tela cheia</button>
-</header>
-
-<div class="stage">
+<div class="stage" id="stage">
   <video id="video" autoplay playsinline muted></video>
+
+  <div class="bar top" id="topBar">
+    <b>screenshared</b>
+    <span><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
+    <span class="sp"></span>
+    <span id="viewerCount"></span>
+    <span id="audioTag"></span>
+  </div>
+
+  <div class="bar bottom" id="botBar">
+    <span class="zoomTag" id="zoomTag" hidden>100%</span>
+    <button id="zoomReset" hidden>Zoom normal</button>
+    <span class="sp"></span>
+    <button id="soundBtn" hidden>Ativar som</button>
+    <input type="range" id="volume" min="0" max="100" value="100" title="Volume" hidden>
+    <button id="chatBtn">Mensagens<span class="badge" id="chatBadge" hidden>0</span></button>
+    <button id="fsBtn">Tela cheia</button>
+  </div>
+
+  <button class="unmute" id="unmuteBtn" hidden>Clique para ouvir</button>
 
   <div class="overlay" id="gate">
     <h2>Como você quer aparecer?</h2>
-    <p>O dono da transmissão vê este nome na lista de quem está assistindo.</p>
+    <p>O dono da transmissão vê este nome na lista, e ele aparece nas suas mensagens.</p>
     <form id="gateForm" class="gateRow">
       <input type="text" id="nickInput" maxlength="24" placeholder="Seu nome" autocomplete="nickname" autofocus>
       <button type="submit" class="primary">Entrar</button>
@@ -88,23 +171,33 @@
     <button id="playBtn" class="primary" hidden>Tocar</button>
   </div>
 
-  <button class="unmute" id="unmuteBtn" hidden>Clique para ouvir</button>
   <div class="toast hidden" id="toast"></div>
 </div>
+
+<aside class="chat" id="chat">
+  <header>Mensagens<button id="chatClose" title="Fechar">&times;</button></header>
+  <div class="chatLog" id="chatLog"></div>
+  <form class="chatForm" id="chatForm">
+    <input type="text" id="chatInput" maxlength="300" placeholder="Escreva uma mensagem" autocomplete="off">
+    <button type="submit" class="primary">Enviar</button>
+  </form>
+</aside>
 
 <script>
 'use strict';
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
+const stage = $('stage');
+const chatLog = $('chatLog');
 const PIN = new URLSearchParams(location.search).get('p') || '';
 
 let ws = null;
 let nick = '';
 let kicked = false;
-let streamHasAudio = false;
 let mode = 'webrtc';
 let live = false;
+let streamHasAudio = false;
 let iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 let pc = null;
@@ -126,7 +219,6 @@ function overlay(title, text, spinner) {
   $('ovText').textContent = text;
   $('spinner').style.display = spinner ? '' : 'none';
 }
-
 function hideOverlay() { $('overlay').classList.add('hidden'); }
 
 let toastTimer = null;
@@ -134,14 +226,107 @@ function toast(msg) {
   $('toast').textContent = msg;
   $('toast').classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => $('toast').classList.add('hidden'), 3000);
+  toastTimer = setTimeout(() => $('toast').classList.add('hidden'), 2600);
 }
+
+// ------------------------------------------------------------------ barras somem sozinhas
+
+let idleTimer = null;
+
+function poke() {
+  document.body.classList.remove('idle');
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    // com o chat aberto, digitando, ou antes de entrar, esconder so' atrapalha
+    if (document.body.classList.contains('chat-open')) return;
+    if (!$('gate').classList.contains('hidden')) return;
+    const a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) return;
+    document.body.classList.add('idle');
+  }, 2600);
+}
+
+['mousemove', 'mousedown', 'wheel', 'touchstart', 'keydown'].forEach((ev) => {
+  window.addEventListener(ev, poke, { passive: true });
+});
+
+// ------------------------------------------------------------------ zoom e arrasto
+
+let zoom = 1, panX = 0, panY = 0;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function clampPan() {
+  const r = stage.getBoundingClientRect();
+  const maxX = Math.max(0, (r.width * zoom - r.width) / 2);
+  const maxY = Math.max(0, (r.height * zoom - r.height) / 2);
+  panX = clamp(panX, -maxX, maxX);
+  panY = clamp(panY, -maxY, maxY);
+}
+
+function applyView() {
+  video.style.transform = 'translate(' + panX + 'px,' + panY + 'px) scale(' + zoom + ')';
+  const on = zoom > 1.001;
+  stage.classList.toggle('zoomed', on);
+  $('zoomTag').hidden = !on;
+  $('zoomReset').hidden = !on;
+  $('zoomTag').textContent = Math.round(zoom * 100) + '%';
+}
+
+function resetZoom() { zoom = 1; panX = 0; panY = 0; applyView(); }
+
+// zoom no ponto do cursor: o pixel sob o mouse continua sob o mouse
+stage.addEventListener('wheel', (e) => {
+  if (!video.srcObject && !video.getAttribute('src')) return;
+  e.preventDefault();
+  const r = stage.getBoundingClientRect();
+  const sx = e.clientX - r.left - r.width / 2;
+  const sy = e.clientY - r.top - r.height / 2;
+  const lx = (sx - panX) / zoom;
+  const ly = (sy - panY) / zoom;
+
+  const next = clamp(zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), 1, 12);
+  if (Math.abs(next - zoom) < 0.0001) return;
+  zoom = next;
+  panX = sx - lx * zoom;
+  panY = sy - ly * zoom;
+  if (zoom <= 1.001) { zoom = 1; panX = 0; panY = 0; }
+  clampPan();
+  applyView();
+}, { passive: false });
+
+let dragging = false, lastX = 0, lastY = 0;
+
+stage.addEventListener('mousedown', (e) => {
+  if (zoom <= 1.001 || e.button !== 0) return;
+  dragging = true;
+  lastX = e.clientX; lastY = e.clientY;
+  stage.classList.add('dragging');
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  panX += e.clientX - lastX;
+  panY += e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  clampPan();
+  applyView();
+});
+
+window.addEventListener('mouseup', () => {
+  dragging = false;
+  stage.classList.remove('dragging');
+});
+
+window.addEventListener('resize', () => { clampPan(); applyView(); });
+
+// ------------------------------------------------------------------ som
 
 function tryPlay() {
   const p = video.play();
   if (!p || !p.catch) return;
   p.catch(() => {
-    // o navegador barrou tocar com som sem gesto: toca mudo e pede um clique
+    // barrado por tocar com som sem gesto: toca mudo e pede um clique
     if (!video.muted) {
       video.muted = true;
       refreshAudioUi();
@@ -156,13 +341,62 @@ function tryPlay() {
   });
 }
 
-// o som so precisa de atencao quando existe som para ouvir
 function refreshAudioUi() {
   const temSom = streamHasAudio;
   $('audioTag').textContent = live && !temSom ? 'sem áudio' : '';
   $('soundBtn').hidden = !temSom;
+  $('volume').hidden = !temSom || video.muted;
   $('soundBtn').textContent = video.muted ? 'Ativar som' : 'Mudo';
-  $('unmuteBtn').hidden = !(temSom && video.muted && !video.paused);
+  $('unmuteBtn').hidden = !(temSom && video.muted && !video.paused && live);
+}
+
+// ------------------------------------------------------------------ chat
+
+let unread = 0;
+
+function chatOpen() { return document.body.classList.contains('chat-open'); }
+
+function setChat(open) {
+  document.body.classList.toggle('chat-open', open);
+  if (open) {
+    unread = 0;
+    updateBadge();
+    $('chatInput').focus();
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+  poke();
+}
+
+function updateBadge() {
+  $('chatBadge').hidden = unread === 0;
+  $('chatBadge').textContent = unread > 99 ? '99+' : String(unread);
+}
+
+function addMsg(m) {
+  const perto = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 70;
+
+  const row = document.createElement('div');
+  row.className = 'msg' + (m.host ? ' host' : '');
+  const who = document.createElement('b');
+  who.textContent = m.nick;              // textContent: apelido nunca vira HTML
+  const txt = document.createElement('span');
+  txt.textContent = m.text;              // idem para a mensagem
+  row.appendChild(who);
+  row.appendChild(txt);
+  chatLog.appendChild(row);
+
+  while (chatLog.childElementCount > 250) chatLog.removeChild(chatLog.firstChild);
+  if (perto) chatLog.scrollTop = chatLog.scrollHeight;
+
+  if (!chatOpen()) { unread++; updateBadge(); }
+}
+
+function addSys(text) {
+  const row = document.createElement('div');
+  row.className = 'msg sys';
+  row.textContent = text;
+  chatLog.appendChild(row);
+  chatLog.scrollTop = chatLog.scrollHeight;
 }
 
 // ------------------------------------------------------------------ ws
@@ -198,8 +432,8 @@ function connect() {
         mode = m.mode;
         live = m.live;
         streamHasAudio = !!m.audio;
-        refreshAudioUi();
         if (m.title) document.title = m.title + ' — screenshared';
+        refreshAudioUi();
         updateIdle();
         break;
 
@@ -213,7 +447,7 @@ function connect() {
         live = m.live;
         streamHasAudio = !!m.audio;
         if (m.mode) mode = m.mode;
-        if (!live) { teardown(); }
+        if (!live) { teardown(); resetZoom(); }
         refreshAudioUi();
         updateIdle();
         break;
@@ -221,6 +455,8 @@ function connect() {
       case 'offline':
         live = false;
         teardown();
+        resetZoom();
+        refreshAudioUi();
         setStatus('off', 'transmissor offline');
         overlay('Transmissor saiu', 'A página vai voltar sozinha quando ele reabrir.', true);
         break;
@@ -232,6 +468,20 @@ function connect() {
       case 'count':
         $('viewerCount').textContent = m.n ? m.n + ' assistindo' : '';
         $('viewerCount').title = (m.names || []).join(', ');
+        break;
+
+      case 'chat':
+        addMsg(m);
+        break;
+
+      case 'chat-history':
+        (m.list || []).forEach(addMsg);
+        unread = 0;
+        updateBadge();
+        break;
+
+      case 'chat-slow':
+        addSys('devagar aí — espere alguns segundos antes de mandar de novo');
         break;
 
       case 'kicked':
@@ -373,7 +623,7 @@ function onChunk(data) {
 function pump() {
   if (!sb || sb.updating || !ms || ms.readyState !== 'open') return;
 
-  // poda o que já passou pra não estourar a memória do buffer
+  // poda o que ja passou pra nao estourar a memoria do buffer
   try {
     if (video.buffered.length) {
       const start = video.buffered.start(0);
@@ -386,7 +636,10 @@ function pump() {
   try {
     sb.appendBuffer(chunk);
   } catch (e) {
-    if (e.name === 'QuotaExceededError') { queue.length = 0; try { sb.remove(0, Math.max(0, video.currentTime - 4)); } catch (e2) {} }
+    if (e.name === 'QuotaExceededError') {
+      queue.length = 0;
+      try { sb.remove(0, Math.max(0, video.currentTime - 4)); } catch (e2) {}
+    }
   }
 }
 
@@ -396,7 +649,11 @@ function teardownRelay() {
     try { if (ms.readyState === 'open') ms.endOfStream(); } catch (e) {}
     ms = null;
   }
-  if (video.src) { try { URL.revokeObjectURL(video.src); } catch (e) {} video.removeAttribute('src'); video.load(); }
+  if (video.getAttribute('src')) {
+    try { URL.revokeObjectURL(video.src); } catch (e) {}
+    video.removeAttribute('src');
+    video.load();
+  }
   sbMime = '';
   queue.length = 0;
 }
@@ -424,43 +681,70 @@ video.addEventListener('playing', () => {
   refreshAudioUi();
   setStatus('on', mode === 'relay' ? 'no ar (compatível)' : 'no ar (WebRTC)');
 });
+video.addEventListener('volumechange', refreshAudioUi);
+video.addEventListener('pause', refreshAudioUi);
 
-// ------------------------------------------------------------------ botões
+// ------------------------------------------------------------------ botoes
 
-$('playBtn').onclick = () => { video.muted = false; $('soundBtn').textContent = 'Mudo'; tryPlay(); hideOverlay(); };
-
-$('soundBtn').onclick = () => {
-  video.muted = !video.muted;
-  if (!video.muted) { video.volume = 1; tryPlay(); }
-  refreshAudioUi();
-  toast(video.muted ? 'Som desligado' : 'Som ligado');
-};
+$('playBtn').onclick = () => { video.muted = false; tryPlay(); hideOverlay(); refreshAudioUi(); };
 
 $('unmuteBtn').onclick = () => {
   video.muted = false;
-  video.volume = 1;
+  video.volume = $('volume').value / 100;
   tryPlay();
   refreshAudioUi();
 };
 
-video.addEventListener('volumechange', refreshAudioUi);
-video.addEventListener('pause', refreshAudioUi);
+$('soundBtn').onclick = () => {
+  video.muted = !video.muted;
+  if (!video.muted) { video.volume = $('volume').value / 100; tryPlay(); }
+  refreshAudioUi();
+  toast(video.muted ? 'Som desligado' : 'Som ligado');
+};
+
+$('volume').oninput = () => {
+  video.volume = $('volume').value / 100;
+  if (video.volume > 0 && video.muted) video.muted = false;
+  refreshAudioUi();
+};
+
+$('zoomReset').onclick = resetZoom;
+$('chatBtn').onclick = () => setChat(!chatOpen());
+$('chatClose').onclick = () => setChat(false);
+
+$('chatForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('chatInput').value.trim();
+  if (!text) return;
+  wsSend({ t: 'chat', text: text });
+  $('chatInput').value = '';
+});
 
 $('fsBtn').onclick = () => {
   if (document.fullscreenElement) document.exitFullscreen();
-  else document.querySelector('.stage').requestFullscreen().catch(() => {});
+  else document.documentElement.requestFullscreen().catch(() => {});
 };
 
 document.addEventListener('keydown', (e) => {
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')) {
+    if (e.key === 'Escape') a.blur();
+    return;
+  }
   if (e.key === 'f') $('fsBtn').click();
   if (e.key === 'm') $('soundBtn').click();
+  if (e.key === 'c') { e.preventDefault(); setChat(!chatOpen()); }
+  if (e.key === '0') resetZoom();
 });
 
 video.addEventListener('dblclick', () => $('fsBtn').click());
 
 // ------------------------------------------------------------------ boot
 
-try { $('nickInput').value = (localStorage.getItem('screenshared.nick') || localStorage.getItem('telar.nick') || '').slice(0, 24); } catch (e) {}
+try {
+  $('nickInput').value = (localStorage.getItem('screenshared.nick')
+    || localStorage.getItem('telar.nick') || '').slice(0, 24);
+} catch (e) {}
 
 $('gateForm').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -473,6 +757,7 @@ $('gateForm').addEventListener('submit', (e) => {
 
   $('gate').classList.add('hidden');
   overlay('Conectando', 'Aguardando o servidor.', true);
+  poke();
 
   fetch('/config.json', { cache: 'no-store' })
     .then((r) => r.json())
@@ -480,6 +765,9 @@ $('gateForm').addEventListener('submit', (e) => {
     .catch(() => {})
     .finally(connect);
 });
+
+applyView();
+refreshAudioUi();
 </script>
 </body>
 </html>

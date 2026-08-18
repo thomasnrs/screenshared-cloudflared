@@ -110,6 +110,38 @@ resolução) continuam dizendo se está tudo certo.
 
 ---
 
+## A tela de quem assiste
+
+Os controles **somem sozinhos** depois de ~2,5s sem mexer o mouse, junto com o
+cursor. Mover traz de volta o botão de mensagens, o volume, o zoom e a tela cheia.
+Com o chat aberto ou digitando, nada some.
+
+| | |
+|---|---|
+| **Zoom** | roda do mouse sobre a imagem. O ponto sob o cursor fica parado, então dá para mirar um trecho de código e aproximar direto nele. Vai até 12x. |
+| **Mover** | com zoom ativo, arraste com o botão esquerdo. Não deixa passar da borda. |
+| **Voltar** | botão *Zoom normal* ou a tecla `0`. |
+| **Som** | botão de volume na barra de baixo. Quem entra já entra com som. |
+| **Atalhos** | `f` tela cheia, `m` mudo, `c` chat, `0` zoom normal. Duplo clique também alterna tela cheia. |
+
+### Chat
+
+Botão **Mensagens** abre uma coluna à direita — o vídeo encolhe em vez de ficar
+coberto. O apelido escolhido na entrada é o nome que aparece; as mensagens do
+transmissor vêm marcadas com ★ e em outra cor.
+
+Quem chega no meio recebe as últimas 60 mensagens. O contador no botão mostra
+quantas chegaram enquanto o chat estava fechado.
+
+Limite de 6 mensagens a cada 10s **por pessoa** — quem passar disso só tem as
+próprias mensagens descartadas, com aviso, sem atrapalhar a sala. Texto é cortado
+em 300 caracteres, limpo de caracteres invisíveis e de controle, e inserido sempre
+como texto: apelido ou mensagem nunca viram HTML.
+
+No painel do transmissor tem o mesmo chat, no dock **Mensagens**.
+
+---
+
 ## Desinstalar
 
 **Windows** — duplo clique em `uninst.bat`. **Linux/macOS** — `./uninst.sh`.
@@ -372,6 +404,7 @@ que o Safari não reproduz via MSE.
 | `public/watch.html` | espectador: apelido na entrada, WebRTC ou MediaSource, cola na ponta ao vivo |
 | `discord.js` | Rich Presence pelo IPC local do cliente, sem dependência |
 | `uninst.bat` / `uninst.sh` | apaga o que foi baixado (cloudflared, Node portátil, config) |
+| `ascii2.md` / `ascii.md` | as artes do terminal: título e assinatura. Troque à vontade — se não couber na largura do terminal, vira uma linha de texto |
 | `screenshared.config.json` | o que o painel salvou (App ID, convite, texto do status) |
 | `tunnel.log` | saída crua do cloudflared, para quando o túnel der problema |
 

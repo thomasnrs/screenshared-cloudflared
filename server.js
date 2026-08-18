@@ -344,6 +344,56 @@ let nextId = 1;
 
 function toViewers(obj) { for (const v of viewers.values()) v.json(obj); }
 
+// ---------------------------------------------------------------- chat
+
+const CHAT_KEEP = 60;      // quantas mensagens quem chega depois recebe
+const CHAT_LEN = 300;
+const CHAT_BURST = 6;      // mensagens por janela, por conexao
+const CHAT_WINDOW = 10000;
+
+const chat = [];
+let chatSeq = 0;
+
+function cleanMsg(s) {
+  return String(s == null ? '' : s)
+    .replace(NICK_HIDE, '')
+    .replace(NICK_CTRL, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHAT_LEN);
+}
+
+// spam nao derruba a sala: passa do limite, a mensagem so' e' descartada
+function chatAllowed(conn) {
+  const now = Date.now();
+  if (!conn.chatTimes) conn.chatTimes = [];
+  while (conn.chatTimes.length && now - conn.chatTimes[0] > CHAT_WINDOW) conn.chatTimes.shift();
+  if (conn.chatTimes.length >= CHAT_BURST) return false;
+  conn.chatTimes.push(now);
+  return true;
+}
+
+function sendChat(conn, raw, host) {
+  const text = cleanMsg(raw);
+  if (!text) return;
+  if (!chatAllowed(conn)) {
+    conn.json({ t: 'chat-slow', wait: Math.ceil(CHAT_WINDOW / 1000) });
+    return;
+  }
+  const m = {
+    t: 'chat',
+    id: ++chatSeq,
+    nick: host ? 'transmissor' : conn.nick,
+    host: !!host,
+    text: text,
+    at: Date.now(),
+  };
+  chat.push(m);
+  if (chat.length > CHAT_KEEP) chat.shift();
+  toViewers(m);
+  if (broadcaster) broadcaster.json(m);
+}
+
 function viewerList() {
   return Array.from(viewers.values()).map((v) => ({
     id: v.id, nick: v.nick, ip: v.ip, since: v.since, dropped: v.dropped,
@@ -710,6 +760,7 @@ function attachBroadcaster(conn) {
     viewers: Array.from(viewers.keys()),
     list: viewerList(), banned: Array.from(banned),
   });
+  if (chat.length) conn.json({ t: 'chat-history', list: chat });
   log('painel do transmissor conectado');
 
   conn.onmessage = (msg, bin) => {
@@ -774,6 +825,10 @@ function attachBroadcaster(conn) {
         break;
       }
 
+      case 'chat':
+        sendChat(conn, msg.text, true);
+        break;
+
       case 'unban':
         if (banned.delete(normIp(msg.ip))) log('desbaniu o IP ' + normIp(msg.ip));
         pushViewers();
@@ -799,6 +854,7 @@ function attachViewer(conn) {
   viewers.set(id, conn);
 
   conn.json({ t: 'welcome', role: 'view', id: id, nick: conn.nick, mode: mode, live: live, audio: hasAudio, title: title });
+  if (chat.length) conn.json({ t: 'chat-history', list: chat });
   if (mode === 'relay' && live && relayInit) {
     conn.json({ t: 'relay-init', mime: relayMime });
     conn.send(OP.BIN, relayInit);
@@ -808,6 +864,7 @@ function attachViewer(conn) {
 
   conn.onmessage = (msg) => {
     if (!msg) return;
+    if (msg.t === 'chat') return sendChat(conn, msg.text, false);
     if (msg.t === 'sdp' || msg.t === 'ice' || msg.t === 'webrtc-failed') {
       if (broadcaster) broadcaster.json({ t: msg.t, from: id, data: msg.data });
     }

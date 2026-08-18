@@ -46,6 +46,25 @@ function step(m) { say(C.dim + '  · ' + m + C.r); }
 function warn(m) { say(C.ye + '  ! ' + m + C.r); }
 function fail(m) { say(C.rd + '  x ' + m + C.r); }
 
+// As artes vem de arquivos soltos: da' pra trocar sem mexer no codigo.
+// Terminal estreito quebraria o desenho em pedacos, entao ai' vai o texto curto.
+function art(file, color, fallback) {
+  let raw = '';
+  try { raw = fs.readFileSync(path.join(__dirname, file), 'utf8'); } catch (e) {}
+
+  const linhas = raw.replace(/\r/g, '').replace(/\s+$/, '').split('\n').filter((l) => l.length);
+  const largura = linhas.reduce((m, l) => Math.max(m, [...l].length), 0);
+
+  if (largura && largura <= (process.stdout.columns || 80)) {
+    say('');
+    for (const l of linhas) say((color || C.cy) + l + C.r);
+    return true;
+  }
+
+  if (fallback) { say(''); say('  ' + C.dim + fallback + C.r); }
+  return false;
+}
+
 function banner(publicUrl, port) {
   const panel = 'http://localhost:' + port + '/b?k=' + KEY;
   const lan = lanAddress();
@@ -379,8 +398,8 @@ function superviseTunnel(bin, port, r) {
 // ---------------------------------------------------------------- main
 
 (async function main() {
-  say('');
-  say('  ' + C.b + C.cy + 'screenshared' + C.r + C.dim + ' — espelhamento de tela pelo navegador' + C.r);
+  art('ascii2.md', C.cy, C.b + C.cy + 'screenshared' + C.r);
+  say('  ' + C.dim + 'espelhamento de tela pelo navegador' + C.r);
   say('');
 
   const port = await findPort(WANT_PORT);
@@ -405,6 +424,8 @@ function superviseTunnel(bin, port, r) {
   if (publicUrl) await tellServer(port, publicUrl);
 
   banner(publicUrl, port);
+  art('ascii.md', C.dim, 'jhonparkedev');
+  say('');
   openBrowser('http://localhost:' + port + '/b?k=' + KEY);
   if (publicUrl) confirmWhenLive(publicUrl);
 
