@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>telar</title>
+<title>screenshared</title>
 <link rel="stylesheet" href="/style.css">
 <style>
   body { display: flex; flex-direction: column; background: #000; }
@@ -52,7 +52,7 @@
 <body>
 
 <header>
-  <h1>telar</h1>
+  <h1>screenshared</h1>
   <span class="status"><span class="dot" id="dot"></span><span id="statusText">conectando...</span></span>
   <span class="spacer"></span>
   <span class="status" id="viewerCount"></span>
@@ -163,7 +163,7 @@ function connect() {
       case 'welcome':
         mode = m.mode;
         live = m.live;
-        if (m.title) document.title = m.title + ' — telar';
+        if (m.title) document.title = m.title + ' — screenshared';
         updateIdle();
         break;
 
@@ -188,7 +188,7 @@ function connect() {
         break;
 
       case 'title':
-        if (m.title) document.title = m.title + ' — telar';
+        if (m.title) document.title = m.title + ' — screenshared';
         break;
 
       case 'count':
@@ -410,12 +410,12 @@ video.addEventListener('dblclick', () => $('fsBtn').click());
 
 // ------------------------------------------------------------------ boot
 
-try { $('nickInput').value = (localStorage.getItem('telar.nick') || '').slice(0, 24); } catch (e) {}
+try { $('nickInput').value = (localStorage.getItem('screenshared.nick') || localStorage.getItem('telar.nick') || '').slice(0, 24); } catch (e) {}
 
 $('gateForm').addEventListener('submit', (e) => {
   e.preventDefault();
   nick = $('nickInput').value.trim().slice(0, 24);
-  try { localStorage.setItem('telar.nick', nick); } catch (err) {}
+  try { localStorage.setItem('screenshared.nick', nick); } catch (err) {}
 
   $('gate').classList.add('hidden');
   overlay('Conectando', 'Aguardando o servidor.', true);

@@ -1,6 +1,6 @@
 'use strict';
 /*
- * telar - Rich Presence pelo IPC local do cliente Discord.
+ * screenshared - Rich Presence pelo IPC local do cliente Discord.
  *
  * O cliente de desktop abre um named pipe (Windows) ou socket unix (Linux/mac)
  * chamado discord-ipc-N. O protocolo e' [op int32 LE][tamanho int32 LE][json].
@@ -30,7 +30,8 @@ function pipeBases() {
 
 function candidates() {
   // escape para caminho fora do padrao (sandbox de flatpak/snap, ou teste)
-  if (process.env.TELAR_DISCORD_PIPE) return [process.env.TELAR_DISCORD_PIPE];
+  const forced = process.env.SCREENSHARED_DISCORD_PIPE || process.env.TELAR_DISCORD_PIPE;
+  if (forced) return [forced];
   const out = [];
   for (const base of pipeBases()) for (let i = 0; i < 10; i++) out.push(base + 'discord-ipc-' + i);
   return out;
@@ -188,7 +189,7 @@ class Presence {
     this.showing = true;
     this.write(OP.FRAME, {
       cmd: 'SET_ACTIVITY',
-      nonce: 'telar-' + this.sentAt,
+      nonce: 'ss-' + this.sentAt,
       args: { pid: process.pid, activity: activity },
     });
   }
@@ -205,7 +206,7 @@ class Presence {
     this.sentAt = Date.now();
     this.write(OP.FRAME, {
       cmd: 'SET_ACTIVITY',
-      nonce: 'telar-clear-' + this.sentAt,
+      nonce: 'ss-clear-' + this.sentAt,
       args: { pid: process.pid },      // sem activity = limpa
     });
   }

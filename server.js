@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * telar - servidor de espelhamento de tela.
+ * screenshared - servidor de espelhamento de tela.
  * HTTP estatico + hub WebSocket, sem nenhuma dependencia externa.
  */
 
@@ -9,23 +9,78 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const https = require('https');
 const { Presence } = require('./discord.js');
 
-const PORT = parseInt(process.env.TELAR_PORT || '8787', 10);
-const KEY = process.env.TELAR_KEY || crypto.randomBytes(5).toString('hex');
-const PIN = process.env.TELAR_PIN || '';
-const PUBDIR = path.join(__dirname, 'public');
+// nomes novos SCREENSHARED_*, aceitando os antigos TELAR_* sem quebrar nada
+function env(name, def) {
+  return process.env['SCREENSHARED_' + name] || process.env['TELAR_' + name] || def || '';
+}
 
-const DISCORD_ID = process.env.TELAR_DISCORD_APP_ID || '';
-const DISCORD_INVITE = process.env.TELAR_DISCORD_INVITE || '';
-const DISCORD_TYPE = process.env.TELAR_DISCORD_TYPE;      // 0 jogando, 3 assistindo...
+const PORT = parseInt(env('PORT', '8787'), 10);
+const KEY = env('KEY') || crypto.randomBytes(5).toString('hex');
+const PIN = env('PIN');
+const PUBDIR = path.join(__dirname, 'public');
+const CFG_FILE = path.join(__dirname, 'screenshared.config.json');
 
 const MAX_THUMB = 512 * 1024;
 const THUMB_PATH = '/t/' + crypto.randomBytes(6).toString('hex');   // nao adivinhavel
 
 const MAX_FRAME = 24 * 1024 * 1024;   // teto de um frame ws
 const SLOW_BYTES = 4 * 1024 * 1024;   // acima disso o espectador e' lento: descarta video
-const MAX_VIEWERS = parseInt(process.env.TELAR_MAX_VIEWERS || '50', 10);
+const MAX_VIEWERS = parseInt(env('MAX_VIEWERS', '50'), 10);
+
+// ---------------------------------------------------------------- config salva
+
+// o painel edita isto e fica gravado; variavel de ambiente so' semeia na primeira vez
+const DEFAULT_CFG = {
+  discordAppId: '',
+  discordInvite: '',
+  statusText: 'Compartilhando a tela',
+  activityType: 0,
+};
+
+let cfg = Object.assign({}, DEFAULT_CFG);
+
+// o Discord recusa a atividade INTEIRA se um campo tiver menos de 2 caracteres,
+// entao campo curto demais e' omitido em vez de mandado
+function fitField(s) {
+  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, 128);
+  return t.length >= 2 ? t : '';
+}
+
+function sanitizeCfg(raw) {
+  const out = Object.assign({}, DEFAULT_CFG);
+  if (!raw || typeof raw !== 'object') return out;
+
+  const id = String(raw.discordAppId == null ? '' : raw.discordAppId).trim();
+  out.discordAppId = /^[0-9]{15,25}$/.test(id) ? id : '';
+
+  const inv = String(raw.discordInvite == null ? '' : raw.discordInvite).trim().slice(0, 200);
+  out.discordInvite = /^https:\/\/[^\s]+$/.test(inv) ? inv : '';
+
+  const txt = String(raw.statusText == null ? '' : raw.statusText).replace(/\s+/g, ' ').trim().slice(0, 128);
+  out.statusText = txt.length >= 2 ? txt : DEFAULT_CFG.statusText;
+
+  const t = parseInt(raw.activityType, 10);
+  out.activityType = [0, 2, 3, 5].indexOf(t) >= 0 ? t : 0;   // 1 o Discord recusa
+  return out;
+}
+
+function loadCfg() {
+  let saved = {};
+  try { saved = JSON.parse(fs.readFileSync(CFG_FILE, 'utf8')); } catch (e) {}
+  cfg = sanitizeCfg(saved);
+  if (!cfg.discordAppId) cfg.discordAppId = sanitizeCfg({ discordAppId: env('DISCORD_APP_ID') }).discordAppId;
+  if (!cfg.discordInvite) cfg.discordInvite = sanitizeCfg({ discordInvite: env('DISCORD_INVITE') }).discordInvite;
+  const envType = env('DISCORD_TYPE');
+  if (envType !== '' && !saved.activityType) cfg.activityType = sanitizeCfg({ activityType: envType }).activityType;
+}
+
+function saveCfg() {
+  try { fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); return true; }
+  catch (e) { log('não consegui salvar a config: ' + e.message); return false; }
+}
 
 // ---------------------------------------------------------------- seguranca
 
@@ -307,8 +362,43 @@ function announceCount() {
 
 // ---------------------------------------------------------------- discord
 
-const presence = DISCORD_ID ? new Presence(DISCORD_ID, (m) => log('discord: ' + m)) : null;
-if (presence) presence.start();
+let presence = null;
+let discordNote = '';
+let appName = '';
+
+// o nome do app e' a primeira linha do status, e quem decide e' o Developer
+// Portal — buscamos para o painel poder mostrar a previa de verdade
+function fetchAppName(id) {
+  appName = '';
+  if (!id) return;
+  const req = https.get(
+    'https://discord.com/api/v10/applications/' + id + '/rpc',
+    { headers: { 'user-agent': 'screenshared' } },
+    (res) => {
+      let body = '';
+      res.on('data', (c) => { if (body.length < 8192) body += c; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) { discordNote = 'App ID não encontrado no Discord'; return; }
+        try { appName = String(JSON.parse(body).name || '').slice(0, 60); } catch (e) {}
+      });
+    }
+  );
+  req.setTimeout(8000, () => req.destroy());
+  req.on('error', () => {});
+}
+
+function applyDiscord() {
+  const id = cfg.discordAppId;
+  if (presence && presence.clientId === id) return updatePresence();
+  if (presence) { presence.stop(); presence = null; }
+  discordNote = '';
+  fetchAppName(id);
+  if (id) {
+    presence = new Presence(id, (m) => { discordNote = m; log('discord: ' + m); });
+    presence.start();
+  }
+  updatePresence();
+}
 
 function plural(n) {
   if (n === 0) return 'ninguém assistindo ainda';
@@ -321,23 +411,26 @@ function updatePresence() {
   if (!live) return presence.clear();
 
   const act = {
-    details: title || 'Compartilhando a tela',
-    state: plural(viewers.size),
+    type: cfg.activityType,
     timestamps: { start: liveSince || Date.now() },
     instance: false,
   };
-  if (DISCORD_TYPE !== undefined && DISCORD_TYPE !== '') act.type = parseInt(DISCORD_TYPE, 10);
+
+  const details = fitField(title || cfg.statusText);
+  const state = fitField(plural(viewers.size));
+  if (details) act.details = details;
+  if (state) act.state = state;
 
   const buttons = [];
   if (publicUrl) buttons.push({ label: 'Assistir a tela', url: publicUrl + (PIN ? '?p=' + PIN : '') });
-  if (DISCORD_INVITE) buttons.push({ label: 'Entrar no servidor', url: DISCORD_INVITE });
+  if (cfg.discordInvite) buttons.push({ label: 'Entrar no servidor', url: cfg.discordInvite });
   if (buttons.length) act.buttons = buttons;
 
   // so' manda imagem quando existe: chave de asset inexistente faz o RPC recusar
   if (thumb && publicUrl) {
     act.assets = {
       large_image: publicUrl + THUMB_PATH + '/' + thumbVersion + '.jpg',
-      large_text: 'telar',
+      large_text: 'screenshared',
     };
   }
 
@@ -368,6 +461,40 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
 };
+
+// Le' o corpo com teto. Estourou: responde 413 e DRENA o resto.
+// Destruir a requisicao no meio deixava o cliente sem resposta e derrubava o
+// processo com uma assercao do libuv.
+function readBody(req, res, limit, done) {
+  const declared = parseInt(req.headers['content-length'] || '0', 10);
+  const tooBig = () => {
+    res.writeHead(413, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('corpo grande demais');
+    req.resume();
+  };
+
+  if (declared > limit) return tooBig();
+
+  const chunks = [];
+  let size = 0;
+  let over = false;
+
+  req.on('data', (c) => {
+    if (over) return;
+    size += c.length;
+    if (size > limit) { over = true; chunks.length = 0; return tooBig(); }
+    chunks.push(c);
+  });
+
+  req.on('aborted', () => { over = true; });
+  req.on('error', () => { over = true; });
+
+  req.on('end', () => {
+    if (over) return;
+    if (!size) { res.writeHead(400); return res.end(); }
+    done(Buffer.concat(chunks, size));
+  });
+}
 
 function serveFile(res, file) {
   fs.readFile(file, (err, data) => {
@@ -414,7 +541,7 @@ const server = http.createServer((req, res) => {
 
   if (p === '/config.json') {
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    return res.end(JSON.stringify({ iceServers: iceServers(), pin: !!PIN, title: title, publicUrl: publicUrl, discord: !!DISCORD_ID }));
+    return res.end(JSON.stringify({ iceServers: iceServers(), pin: !!PIN, title: title, publicUrl: publicUrl, discord: !!cfg.discordAppId }));
   }
 
   // o launcher avisa aqui qual URL o cloudflared entregou (so' aceita com a chave)
@@ -426,27 +553,48 @@ const server = http.createServer((req, res) => {
     return res.end('ok');
   }
 
+  // config editada pelo painel (protegida pela mesma chave do painel)
+  if (p === '/settings') {
+    if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
+
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(JSON.stringify({
+        cfg: cfg,
+        connected: !!(presence && presence.ready),
+        user: presence && presence.user ? presence.user.username : '',
+        note: discordNote,
+        appName: appName,
+      }));
+    }
+
+    if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
+
+    return readBody(req, res, 8192, (buf) => {
+      let body = null;
+      try { body = JSON.parse(buf.toString('utf8')); } catch (e) {}
+      if (!body) { res.writeHead(400); return res.end(); }
+      cfg = sanitizeCfg(body);
+      saveCfg();
+      applyDiscord();
+      log('config atualizada pelo painel');
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, cfg: cfg }));
+    });
+    return;
+  }
+
   // o painel manda a miniatura ja' borrada e reduzida; aqui so' guardamos
   if (p === '/thumb') {
     if (req.method !== 'POST') { res.writeHead(405); return res.end(); }
     if (!safeEqual(url.searchParams.get('k'), KEY)) { noteFail(ip); res.writeHead(403); return res.end(); }
-    const chunks = [];
-    let size = 0;
-    let killed = false;
-    req.on('data', (c) => {
-      size += c.length;
-      if (size > MAX_THUMB) { killed = true; req.destroy(); return; }
-      chunks.push(c);
-    });
-    req.on('end', () => {
-      if (killed || !size) { res.writeHead(400); return res.end(); }
-      thumb = Buffer.concat(chunks);
+    return readBody(req, res, MAX_THUMB, (buf) => {
+      thumb = buf;
       thumbVersion++;
       updatePresence();
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
     });
-    return;
   }
 
   // caminho com token aleatorio: a miniatura nao fica adivinhavel a partir do link
@@ -648,7 +796,10 @@ setInterval(() => {
   for (const v of viewers.values()) v.ping();
 }, 25000).unref();
 
-function log(m) { process.stdout.write('[telar] ' + m + '\n'); }
+function log(m) { process.stdout.write('[screenshared] ' + m + '\n'); }
+
+loadCfg();
+applyDiscord();
 
 server.listen(PORT, () => {
   log('escutando em http://localhost:' + PORT);
@@ -660,6 +811,6 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 }
 
 server.on('error', (e) => {
-  process.stderr.write('[telar] erro no servidor: ' + e.message + '\n');
+  process.stderr.write('[screenshared] erro no servidor: ' + e.message + '\n');
   process.exit(1);
 });

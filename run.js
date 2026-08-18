@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /*
- * telar - launcher.
+ * screenshared - launcher.
  * Acha uma porta livre, garante o cloudflared, sobe o servidor e o tunel,
  * e imprime os links. Sem dependencias.
  */
@@ -127,7 +127,7 @@ function haveCommand(cmd) {
 function download(url, dest, redirects) {
   return new Promise((resolve, reject) => {
     if ((redirects || 0) > 6) return reject(new Error('redirecionamentos demais'));
-    https.get(url, { headers: { 'user-agent': 'telar' } }, (res) => {
+    https.get(url, { headers: { 'user-agent': 'screenshared' } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
         return resolve(download(res.headers.location, dest, (redirects || 0) + 1));
@@ -229,7 +229,7 @@ function startServer(port) {
       while ((nl = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
         if (line.startsWith('TELAR_READY')) { ready = true; resolve(child); }
-        else if (line.trim()) step(line.replace(/^\[telar\]\s*/, ''));
+        else if (line.trim()) step(line.replace(/^\[screenshared\]\s*/, ''));
       }
     });
 
@@ -292,7 +292,7 @@ function startTunnel(bin, port, protocol) {
 // recebe um link morto (erro 1033 da Cloudflare).
 function probe(url) {
   return new Promise((resolve) => {
-    const req = https.get(url + '/health', { headers: { 'user-agent': 'telar' } }, (res) => {
+    const req = https.get(url + '/health', { headers: { 'user-agent': 'screenshared' } }, (res) => {
       let body = '';
       res.on('data', (c) => { if (body.length < 4096) body += c; });
       res.on('end', () => {
@@ -380,7 +380,7 @@ function superviseTunnel(bin, port, r) {
 
 (async function main() {
   say('');
-  say('  ' + C.b + C.cy + 'telar' + C.r + C.dim + ' — espelhamento de tela pelo navegador' + C.r);
+  say('  ' + C.b + C.cy + 'screenshared' + C.r + C.dim + ' — espelhamento de tela pelo navegador' + C.r);
   say('');
 
   const port = await findPort(WANT_PORT);

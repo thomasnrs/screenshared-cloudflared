@@ -1,4 +1,4 @@
-# telar
+# screenshared
 
 Espelhamento de tela pelo navegador. Você roda um script, ele te devolve um link
 `https://…trycloudflare.com`, você manda o link no chat e as pessoas veem sua tela.
@@ -114,17 +114,19 @@ Variáveis de ambiente:
 
 | Variável | Para quê |
 |---|---|
-| `TELAR_PORT` | porta (mesmo que `--port`) |
-| `TELAR_KEY` | fixa a chave do painel em vez de sortear |
-| `TELAR_PIN` | mesmo que `--pin` |
-| `TELAR_MAX_VIEWERS` | teto de espectadores (padrão 50) |
-| `TELAR_DISCORD_APP_ID` | mesmo que `--discord-app-id` |
-| `TELAR_DISCORD_INVITE` | mesmo que `--discord-invite` |
-| `TELAR_DISCORD_PIPE` | caminho do socket do Discord, se estiver em sandbox (Flatpak/Snap) |
-| `TELAR_DISCORD_TYPE` | tipo da atividade: 0 jogando, 3 assistindo |
-| `TELAR_CF_PROTOCOL` | `http2` ou `quic`, força o transporte do cloudflared |
-| `TELAR_TURN_URL` | servidor TURN, ex. `turn:host:3478` |
-| `TELAR_TURN_USER` / `TELAR_TURN_PASS` | credenciais do TURN |
+| `SCREENSHARED_PORT` | porta (mesmo que `--port`) |
+| `SCREENSHARED_KEY` | fixa a chave do painel em vez de sortear |
+| `SCREENSHARED_PIN` | mesmo que `--pin` |
+| `SCREENSHARED_MAX_VIEWERS` | teto de espectadores (padrão 50) |
+| `SCREENSHARED_DISCORD_APP_ID` | mesmo que `--discord-app-id` |
+| `SCREENSHARED_DISCORD_INVITE` | mesmo que `--discord-invite` |
+| `SCREENSHARED_DISCORD_PIPE` | caminho do socket do Discord, se estiver em sandbox (Flatpak/Snap) |
+| `SCREENSHARED_DISCORD_TYPE` | tipo da atividade: 0 jogando, 3 assistindo |
+| `SCREENSHARED_CF_PROTOCOL` | `http2` ou `quic`, força o transporte do cloudflared |
+| `SCREENSHARED_TURN_URL` | servidor TURN, ex. `turn:host:3478` |
+| `SCREENSHARED_TURN_USER` / `SCREENSHARED_TURN_PASS` | credenciais do TURN |
+
+Os nomes antigos `TELAR_*` continuam sendo aceitos.
 
 ### TURN
 
@@ -133,7 +135,7 @@ corporativa fechada dos dois lados, nem STUN salva — aí ou você usa o modo
 compatível (que sempre funciona, porque é HTTPS pelo túnel) ou aponta um TURN:
 
 ```sh
-TELAR_TURN_URL=turn:seu.host:3478 TELAR_TURN_USER=user TELAR_TURN_PASS=senha ./start.sh
+SCREENSHARED_TURN_URL=turn:seu.host:3478 SCREENSHARED_TURN_USER=user SCREENSHARED_TURN_PASS=senha ./start.sh
 ```
 
 ---
@@ -144,7 +146,7 @@ Fala direto com o cliente de desktop pelo IPC local (`discord-ipc-0`) — não p
 pela rede, não precisa de bot nem de token. Enquanto você transmite, seu status fica:
 
 ```
-  Jogando telar
+  Jogando Screenshared
   Compartilhando a tela
   3 pessoas assistindo          12:34 decorridos
   [ Assistir a tela ]  [ Entrar no servidor ]
@@ -155,17 +157,34 @@ com uma miniatura borrada da sua tela do lado.
 ### Ligar (1 minuto, uma vez só)
 
 1. Abra <https://discord.com/developers/applications> → **New Application**.
-2. O **nome que você der é a primeira linha do status** — "telar", "Compartilhando
-   tela", o que quiser ler ali.
-3. Copie o **Application ID** e rode:
+2. O **nome que você der é a primeira linha do status**. Copie o **Application ID**.
+3. Cole no painel, em **Discord — status**, e clique em **Salvar**.
+
+Fica gravado em `screenshared.config.json` e vale nas próximas execuções. O painel
+mostra uma prévia de como o status vai ficar, já com o nome real do seu app, e
+uma bolinha dizendo se conectou.
+
+Também dá por linha de comando, se preferir:
 
 ```sh
-./start.sh --discord-app-id 1234567890123456789
+./start.sh --discord-app-id 1234567890123456789 --discord-invite https://discord.gg/xxxx
 ```
 
-Para o segundo botão levar ao seu servidor, junte `--discord-invite https://discord.gg/xxxx`.
+A linha de comando só semeia na primeira vez; depois disso o que vale é o que
+está salvo pelo painel. Sem App ID o status fica desligado e o resto funciona igual.
 
-Sem `--discord-app-id` nada disso liga, e o resto do programa funciona igual.
+### A primeira linha
+
+O verbo vem do tipo da atividade, e o Discord aceita estes (testados no cliente):
+
+| escolha no painel | vira |
+|---|---|
+| Jogando … | `Jogando Screenshared` |
+| Assistindo … | `Assistindo Screenshared` |
+| Ouvindo … | `Ouvindo Screenshared` |
+| Competindo em … | `Competindo em Screenshared` |
+
+"Transmitindo" existe na API mas o cliente **recusa** por RPC, então não está na lista.
 
 ### O que dá e o que não dá
 
@@ -174,7 +193,7 @@ Sem `--discord-app-id` nada disso liga, e o resto do programa funciona igual.
 | "está compartilhando tela" | **Sim** — na linha `details`. A linha de cima é o nome do app, então escolha bem no passo 2. |
 | Tempo telando | **Sim** — cronômetro de verdade, contado pelo próprio Discord. |
 | Botão que abre a transmissão | **Sim** — é o que resolve seu problema: quem está na call clica e cai direto na sua tela. |
-| Mini-preview borrado | **Sim, com ressalva.** Vai uma miniatura de 320px desfocada a cada 30s. O Discord serve imagem por proxy próprio e cacheia com força, então ela atualiza devagar e, dependendo da versão do cliente, pode não aparecer. Se não aparecer, o resto do status continua funcionando. |
+| Mini-preview borrado | **Sim.** Miniatura de 320px desfocada, trocada a cada 30s. Confirmado no cliente real: o Discord aceita a URL externa e reescreve para o proxy dele (`mp:external/…`). Como ele cacheia com força, a imagem atualiza devagar. |
 | Qual call/servidor você está | **Não dá.** Ler o canal de voz atual exige os escopos `rpc` / `rpc.voice.read`, que o Discord libera só por lista de permissão, caso a caso — app pessoal não consegue. Por isso o convite do servidor é você que configura, no `--discord-invite`. |
 
 Detalhes que economizam confusão:
@@ -187,6 +206,8 @@ Detalhes que economizam confusão:
 - As atualizações saem no máximo a cada 4,5s, porque o RPC do Discord aceita
   cerca de 5 por 20 segundos. Entrou muita gente de uma vez, o status mostra o
   número final, não cada passo.
+- Texto com menos de 2 caracteres faz o Discord recusar a atividade **inteira**.
+  O painel já barra isso, mas é bom saber por que "x" não vira status.
 
 ### Sobre a miniatura
 
@@ -239,7 +260,7 @@ O que já vem ligado:
 | Painel protegido | Chave sorteada a cada execução, comparada em tempo constante. Ela não sai no link público — quem só tem o link não transmite no seu lugar. |
 | Anti-força-bruta | 8 chutes errados na chave ou no PIN e o IP fica bloqueado por 10 min, mesmo que depois acerte. |
 | Rate limit por IP | 300 requisições HTTP/min, 30 aberturas de WebSocket/min e no máximo 6 abas simultâneas por endereço. |
-| Teto de sala | 50 espectadores (`TELAR_MAX_VIEWERS` muda). |
+| Teto de sala | 50 espectadores (`SCREENSHARED_MAX_VIEWERS` muda). |
 | Apelido saneado | Cortado em 24 caracteres, sem caracteres de controle nem invisíveis — incluindo os de inversão RTL, que dão para forjar nomes. É sempre inserido como texto, nunca como HTML. |
 | IP real e não forjável | Atrás do túnel tudo chega de `127.0.0.1`; o IP verdadeiro vem no cabeçalho `CF-Connecting-IP`. O servidor só acredita nesse cabeçalho quando a conexão veio de fato do `cloudflared` local — assim ninguém na sua rede forja o próprio IP para escapar de ban ou de rate limit. |
 
@@ -270,7 +291,7 @@ launcher avisa; aí `Ctrl+C` e rodar de novo pega outro endereço.
 
 **Túnel não sobe** — a rede pode estar bloqueando UDP/QUIC. O launcher já tenta
 `http2` na segunda tentativa; para forçar direto:
-`TELAR_CF_PROTOCOL=http2 ./start.sh`. Se ainda assim não subir, ele segue no ar
+`SCREENSHARED_CF_PROTOCOL=http2 ./start.sh`. Se ainda assim não subir, ele segue no ar
 na rede local e mostra o endereço `http://SEU_IP:8787/`. O que o `cloudflared`
 falou fica em `tunnel.log`.
 
@@ -308,6 +329,7 @@ que o Safari não reproduz via MSE.
 | `public/broadcast.html` | painel: captura, presets, WebRTC por espectador, gravador do relay |
 | `public/watch.html` | espectador: apelido na entrada, WebRTC ou MediaSource, cola na ponta ao vivo |
 | `discord.js` | Rich Presence pelo IPC local do cliente, sem dependência |
+| `screenshared.config.json` | o que o painel salvou (App ID, convite, texto do status) |
 | `tunnel.log` | saída crua do cloudflared, para quando o túnel der problema |
 
 No modo relay o servidor guarda o primeiro chunk do `MediaRecorder` (o cabeçalho
